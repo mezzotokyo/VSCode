@@ -3,6 +3,12 @@
 No file I/O happens in this module. Callers supply a :class:`PhysicalParameters`
 profile (or the legacy constants mapping) and receive the flight result, which
 makes the integrator directly unit-testable.
+
+:class:`ProjectileSimulator` integrates either at a fixed timestep or, with
+``adaptive=True``, at a timestep shortened to stay inside the RK4 stability
+band. The adaptive mode is a divergence safeguard: it shortens a step that would
+breach the stability bound, but never lengthens one past the caller's ``dt``, so
+it cannot make a result more accurate than the fixed mode at the same ``dt``.
 """
 
 from __future__ import annotations
@@ -60,10 +66,19 @@ class FlightResult(NamedTuple):
     impact_speed: float
     landed: bool
     timed_out: bool
+    steps: int
+    timestep_min: float | None
+    timestep_max: float | None
 
 
 class ProjectileSimulator:
-    """Integrates a projectile launch with the classical RK4 method."""
+    """Integrates a projectile launch with the classical RK4 method.
+
+    With ``adaptive=False`` (the default) every step uses the configured ``dt``.
+    With ``adaptive=True`` the configured ``dt`` becomes an upper bound and each
+    step is shortened by :meth:`_next_timestep` to stay inside the RK4
+    stability band.
+    """
 
     def __init__(
         self,
@@ -73,12 +88,14 @@ class ProjectileSimulator:
         dt: float = 0.01,
         *,
         divergence_speed_factor: float = 1000.0,
+        adaptive: bool = False,
     ) -> None:
         self.parameters = coerce_parameters(constants)
         self.initial_velocity = _finite("initial_velocity", initial_velocity)
         self.launch_angle_rad = _finite("launch_angle_rad", launch_angle_rad)
         self.dt = _positive("dt", dt)
         self.default_dt = self.dt
+        self.adaptive = bool(adaptive)
         self.divergence_speed_factor = _positive(
             "divergence_speed_factor", divergence_speed_factor
         )
@@ -105,6 +122,9 @@ class ProjectileSimulator:
         self.landed = False
         self.timed_out = False
         self.dt = self.default_dt
+        self.steps = 0
+        self.timestep_min: float | None = None
+        self.timestep_max: float | None = None
 
     def calculate_ideal_range(self) -> float:
         """Ground range that would be reached without air resistance."""
@@ -121,12 +141,19 @@ class ProjectileSimulator:
         The call is idempotent: unless ``resume`` is true the state is reset to
         the launch conditions first, so repeated calls reproduce the same result.
 
+        In adaptive mode ``dt`` is a ceiling, not the step actually taken: every
+        step is shortened by :meth:`_next_timestep`. The step therefore never
+        exceeds the value the caller asked for, so this shortens coarse
+        timesteps without silently claiming more accuracy than ``dt`` allows.
+
         Raises:
             SimulationDiverged: the integration produced non-finite states or
                 velocities beyond ``divergence_speed_factor`` times the launch
                 speed, which means the timestep is too coarse for the physics.
             ValueError: an upward launch reached the ground inside the first
                 timestep, which means the timestep is too coarse to be trusted.
+                This stays active in adaptive mode because without drag there is
+                no stability band to shrink into.
         """
         timestep = self.dt if dt is None else _positive("dt", dt)
         if resume:
@@ -138,7 +165,8 @@ class ProjectileSimulator:
 
         k, gravity, dt = self.k, self.gravity, self.dt
         launch_speed = math.hypot(self.state[2], self.state[3])
-        self._warn_if_unstable(dt, k, launch_speed)
+        if not self.adaptive:
+            self._warn_if_unstable(dt, k, launch_speed)
         speed_limit = max(
             launch_speed * self.divergence_speed_factor,
             self.gravity * self.max_time,
@@ -146,24 +174,31 @@ class ProjectileSimulator:
         launched_upwards = (
             self.initial_state[3] > UPWARD_TOLERANCE * launch_speed
         )
-        steps = 0
 
         while True:
-            next_state = self._rk4_step(self.state, dt, k, gravity)
-            next_t = self.t + dt
-            steps += 1
+            if self.adaptive:
+                h = self._next_timestep(self.state, dt, k)
+                # max_time - t is strictly positive here: the loop below breaks
+                # as soon as t reaches the limit, so this only trims the
+                # overshoot instead of stalling the integration.
+                h = min(h, self.max_time - self.t)
+            else:
+                h = dt
+            next_state = self._rk4_step(self.state, h, k, gravity)
+            next_t = self.t + h
+            self._record_timestep(h)
 
             self._guard_against_divergence(next_state, speed_limit)
 
             if next_state[1] < 0.0:
-                if steps == 1 and launched_upwards:
+                if self.steps == 1 and launched_upwards:
                     raise ValueError(
-                        f"timestep dt={dt:g} is too coarse: an upward launch reached "
+                        f"timestep dt={h:g} is too coarse: an upward launch reached "
                         f"the ground within the first step. Reduce dt below "
                         f"{self._stable_timestep(k, launch_speed):g}."
                     )
                 self.state, self.t = self._interpolate_ground_crossing(
-                    self.state, next_state, self.t, dt
+                    self.state, next_state, self.t, h
                 )
                 self.landed = True
                 break
@@ -176,6 +211,35 @@ class ProjectileSimulator:
 
         return self.state[0], self.t
 
+    def _next_timestep(self, state: State, dt_max: float, k: float) -> float:
+        """Step to take from ``state``, never longer than ``dt_max``.
+
+        The only limit is the RK4 stability bound ``STABILITY_LIMIT / (k * speed)``,
+        the same divergence guard as :meth:`_stable_timestep` but evaluated at the
+        speed reached here rather than at the launch speed.
+
+        The result is never larger than ``dt_max``, so the step only shrinks. That
+        makes this a divergence safeguard rather than an accuracy upgrade: the
+        overall error still scales with the caller's ``dt_max``.
+
+        A cap on the time remaining until impact was tried here and removed. Any
+        bound of the form ``h <= c * y / -vy`` with ``c < 1`` lets the step cover
+        only a fixed fraction of the height still to fall, so ``y`` decays
+        geometrically towards zero and never passes it; since landing is detected
+        by the strict test ``y < 0``, the integration would never terminate. The
+        cap is also redundant, because the ground crossing is already resolved by
+        the interpolation in :meth:`_interpolate_ground_crossing`.
+        """
+        speed = math.hypot(state[2], state[3])
+        return min(dt_max, self._stable_timestep(k, speed))
+
+    def _record_timestep(self, timestep: float) -> None:
+        self.steps += 1
+        if self.timestep_min is None or timestep < self.timestep_min:
+            self.timestep_min = timestep
+        if self.timestep_max is None or timestep > self.timestep_max:
+            self.timestep_max = timestep
+
     @staticmethod
     def _stable_timestep(k: float, speed: float) -> float:
         """Largest timestep that keeps the explicit RK4 within its stability band."""
@@ -186,10 +250,12 @@ class ProjectileSimulator:
     def _warn_if_unstable(self, dt: float, k: float, launch_speed: float) -> None:
         """Warn when dt breaches the explicit-RK4 stability band.
 
-        This is a divergence guard, not an accuracy guarantee: the measured range
-        error still grows roughly as (dt * k * v)**2, so keeping dt below the
-        advertised value only bounds divergence, not the error magnitude. Tight
-        accuracy needs a much smaller dt, or an adaptive timestep.
+        Only the fixed-timestep mode reaches this; adaptive mode shortens the
+        step instead of warning. This is a divergence guard, not an accuracy
+        guarantee: the measured range error still grows roughly as
+        (dt * k * v)**2, so keeping dt below the advertised value only bounds
+        divergence, not the error magnitude. Tight accuracy needs a much smaller
+        dt, or an adaptive timestep.
         """
         stable_dt = self._stable_timestep(k, launch_speed)
         if dt <= stable_dt:
@@ -224,6 +290,9 @@ class ProjectileSimulator:
             impact_speed=math.hypot(self.state[2], self.state[3]),
             landed=self.landed,
             timed_out=self.timed_out,
+            steps=self.steps,
+            timestep_min=self.timestep_min,
+            timestep_max=self.timestep_max,
         )
 
     @staticmethod
