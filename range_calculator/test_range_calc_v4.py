@@ -8,7 +8,7 @@ import warnings
 from pathlib import Path
 
 import ballistics
-import range_calc_v4
+import range_calc as range_calc
 from ballistics import ProjectileSimulator, SimulationDiverged
 from physics_config import (
     DEFAULT_PARAMETERS,
@@ -16,7 +16,7 @@ from physics_config import (
     coerce_parameters,
     load_parameters,
 )
-from range_calc_v4 import ProjectileConstants
+from range_calc import ProjectileConstants
 
 GRAVITY = ProjectileConstants.GRAVITY
 DRAG_K = ProjectileConstants.drag_scaling_factor()
@@ -265,18 +265,18 @@ class ScenarioLoadingTests(unittest.TestCase):
     """The CLI layer owns CSV parsing and must degrade gracefully."""
 
     def test_load_scenario_reads_shipped_data(self):
-        velocity_kmph, angle_deg = range_calc_v4.load_scenario()
+        velocity_kmph, angle_deg = range_calc.load_scenario()
         self.assertEqual(velocity_kmph, 170.0)
         self.assertEqual(angle_deg, 35.0)
 
     def test_load_scenario_falls_back_when_file_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertWarns(UserWarning):
-                velocity_kmph, angle_deg = range_calc_v4.load_scenario(
+                velocity_kmph, angle_deg = range_calc.load_scenario(
                     Path(tmp) / 'missing.csv'
                 )
-        self.assertEqual(velocity_kmph, range_calc_v4.DEFAULT_VELOCITY_KMPH)
-        self.assertEqual(angle_deg, range_calc_v4.DEFAULT_ANGLE_DEG)
+        self.assertEqual(velocity_kmph, range_calc.DEFAULT_VELOCITY_KMPH)
+        self.assertEqual(angle_deg, range_calc.DEFAULT_ANGLE_DEG)
 
     def test_load_scenario_falls_back_when_malformed(self):
         for content in ('', '170\n', 'abc,def', '170,\n'):
@@ -284,9 +284,9 @@ class ScenarioLoadingTests(unittest.TestCase):
                 path = Path(tmp) / 'data.csv'
                 path.write_text(content, encoding='utf-8')
                 with self.assertWarns(UserWarning):
-                    velocity_kmph, angle_deg = range_calc_v4.load_scenario(path)
-            self.assertEqual(velocity_kmph, range_calc_v4.DEFAULT_VELOCITY_KMPH)
-            self.assertEqual(angle_deg, range_calc_v4.DEFAULT_ANGLE_DEG)
+                    velocity_kmph, angle_deg = range_calc.load_scenario(path)
+            self.assertEqual(velocity_kmph, range_calc.DEFAULT_VELOCITY_KMPH)
+            self.assertEqual(angle_deg, range_calc.DEFAULT_ANGLE_DEG)
 
     def test_load_scenario_ignores_extra_columns(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -294,14 +294,14 @@ class ScenarioLoadingTests(unittest.TestCase):
             path.write_text('170,35,notes\n', encoding='utf-8')
             with warnings.catch_warnings():
                 warnings.simplefilter('error')
-                self.assertEqual(range_calc_v4.load_scenario(path), (170.0, 35.0))
+                self.assertEqual(range_calc.load_scenario(path), (170.0, 35.0))
 
     def test_main_runs_and_reports_results(self):
         buffer = io.StringIO()
         with warnings.catch_warnings():
             warnings.simplefilter('error')
             with contextlib.redirect_stdout(buffer):
-                self.assertEqual(range_calc_v4.main(), 0)
+                self.assertEqual(range_calc.main(), 0)
         output = buffer.getvalue()
         self.assertIn('Ideal Range (No Drag)', output)
         self.assertIn('101.12 m', output)

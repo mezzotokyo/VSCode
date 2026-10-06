@@ -12,7 +12,7 @@ import math
 import unittest
 import warnings
 
-import range_calc_v4
+import range_calc as range_calc
 from ballistics import ProjectileSimulator, SimulationDiverged
 
 GRAVITY = 9.81
@@ -231,7 +231,7 @@ class CommandLineTests(unittest.TestCase):
     def run_main(self, argv):
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):
-            exit_code = range_calc_v4.main(argv)
+            exit_code = range_calc.main(argv)
         return exit_code, buffer.getvalue()
 
     def test_default_invocation_matches_the_v4_report(self):
@@ -254,12 +254,12 @@ class CommandLineTests(unittest.TestCase):
     def test_empty_path_falls_back_to_the_shipped_scenario(self):
         with warnings.catch_warnings():
             warnings.simplefilter('error')
-            self.assertEqual(range_calc_v4.parse_args(['']), (None, 0.01, False))
+            self.assertEqual(range_calc.parse_args(['']), (None, 0.01, False))
 
     def test_parse_args_defaults(self):
-        self.assertEqual(range_calc_v4.parse_args(None), (None, 0.01, False))
+        self.assertEqual(range_calc.parse_args(None), (None, 0.01, False))
         self.assertEqual(
-            range_calc_v4.parse_args(['data.csv', '0.05', '--adaptive']),
+            range_calc.parse_args(['data.csv', '0.05', '--adaptive']),
             ('data.csv', 0.05, True),
         )
 

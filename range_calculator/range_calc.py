@@ -76,8 +76,47 @@ def parse_args(argv: list[str] | None = None) -> tuple[Path | str | None, float,
         args.remove("--adaptive")
         adaptive = True
 
-    path = args[0] if args and args[0] else None
-    dt_max = float(args[1]) if len(args) > 1 else DEFAULT_TIMESTEP
+    # Try to parse positional arguments flexibly: allow [scenario] [dt_max]
+    # and also [dt_max] [scenario] when present. Flags are stripped above.
+    path: Path | str | None = None
+    dt_max = DEFAULT_TIMESTEP
+    candidates = [a for a in args if a]
+    for token in list(candidates):
+        # try as float if it looks like a number
+        if path is None:
+            # maybe dt_max?
+            try:
+                # number?
+                float(token)
+                # could be dt_max; prefer to put dt_max if next is path? or heuristics
+                # simple: if no dt set yet and this is the only numeric, or if we haven't set path by string
+                pass
+            except ValueError:
+                # treat as path
+                path = token
+                candidates.remove(token)
+                break
+    # better approach: scan all and assign numeric to dt_max if plausible, non-numeric to path
+    remaining = []
+    for token in args:
+        if token == "--adaptive":
+            continue
+        remaining.append(token)
+    path = None
+    dt_max = DEFAULT_TIMESTEP
+    for token in remaining:
+        # number (int/float, possibly negative not expected but let float handle)
+        try:
+            # detect number
+            val = float(token)
+            dt_max = val
+            continue
+        except ValueError:
+            if path is None:
+                path = token
+            # else ignore extra
+    if isinstance(path, str) and path == "":
+        path = None
     return path, dt_max, adaptive
 
 
