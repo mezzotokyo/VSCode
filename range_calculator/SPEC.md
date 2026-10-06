@@ -1,6 +1,8 @@
-# 物理モデル仕様書 — 弾道シミュレーション（range_calc_v4）
+# 物理モデル仕様書 — 弾道シミュレーション（range_calc_v4/v5）
 
 対象コード: `range_calc_v4.py` / `ballistics.py` / `physics_config.py`
+
+本仕様書は v4（固定刻み）を基礎とし、v5 では任意モードとして適応刻み（`adaptive=True`）を追加する。CLI ファイル名 `range_calc_v4.py` は歴史的経緯により v5 時点でも維持されている。
 
 ---
 
@@ -116,15 +118,18 @@ vy0    = v0 · sin θ
 ### 4.1 積分手法：古典的4次ルンゲ–クッタ（RK4）
 
 解法には**古典的陽的4次ルンゲ–クッタ法（RK4）** を採用する。
-刻み幅 `dt` は固定で、各ステップは `state → next_state` の陽的な写像として計算される
-（実装: `ballistics.ProjectileSimulator._rk4_step()`）。
 
-既定刻み幅は `dt = 0.01 s`。局所打ち切り誤差は `O(dt⁵)`、全体では `O(dt⁴)`。
-`max_time = 300 s` 上限まで飛行した場合の計算コストは最大 30,000 ステップ／回。
+2つの動作モードが存在する：
+
+- **固定刻みモード（`adaptive=False`）**: 刻み幅 `dt` は固定で、各ステップは `state → next_state` の陽的な写像として計算される（実装: `ballistics.ProjectileSimulator._rk4_step()`）。
+- **適応刻みモード（`adaptive=True`、v5 で追加）**: 刻み幅の上限を `dt_max` とし、各ステップでは `h = min(dt_max, STABILITY_LIMIT / (k · |v_now|))` として**必要なときのみ短縮**する。縮小のみで延長は行わない（実装: `ballistics.ProjectileSimulator._next_timestep()`）。
+
+既定刻み幅/上限は `dt = 0.01 s`。局所打ち切り誤差は `O(dt⁵)`、全体では `O(dt⁴)`。
+`max_time = 300 s` 上限まで飛行した場合の計算コストは最大 30,000 ステップ／回（固定刻み時）。
 
 ### 4.2 安定性条件
 
-陽的RK4の線形安定域の限界（無次元量 `z = dt·k·v`）から、以下を**推奨上限**とする。
+陽的RK4の線形安定域の限界（無次元量 `z = dt·k·v`）から、以下を**安定性上限**とする。
 
 ```
 dt_max = STABILITY_LIMIT / (k · v)          STABILITY_LIMIT = 0.5
@@ -136,11 +141,11 @@ dt_max = STABILITY_LIMIT / (k · v)          STABILITY_LIMIT = 0.5
 dt_max ≈ 1.2405 s
 ```
 
-`dt > dt_max` の場合、`run_simulation()` は `RuntimeWarning` を発して続行するが、
-**この警告は発散防止に過ぎず、精度の保証ではない**。実測の到達距離誤差は概ね
-`(dt · k · v)²` に比例して増大するため、精度を確保するには `dt_max` より十分小さい
-`dt`（既定の 0.01 s は `dt_max` の約 1/124 で、十分に安全側にある）、または適応ステップ，
-が必要である。
+`dt > dt_max` の場合（固定刻みモード）、`run_simulation()` は `RuntimeWarning` を発して続行するが、
+**この警告は発散防止に過ぎず、精度の保証ではない**。適応刻みモードでは `dt_max` を超えないように自動的に短縮する。
+実測の到達距離誤差は概ね `(dt · k · v)²` に比例して増大するため、精度を確保するには `dt_max` より十分小さい
+値（既定の 0.01 s は `dt_max` の約 1/124 で、十分に安全側にある）が望ましい。
+適応刻みは発散を防ぐための機構であり、刻みを上限いっぱいまで拡大した場合の精度を保証するものではない点に注意する。
 
 ### 4.3 地面衝突（`y = 0`）の扱い
 
@@ -162,6 +167,7 @@ dt_max ≈ 1.2405 s
 
 - `divergence_speed_factor = 1000.0`（倍率）は `ProjectileSimulator` のキーワード引数で上書き可。
 - 物理的な「着弾後の跳ね返り」は計算しない。1回の地表面交差で終了する。
+- `reset()` は初期状態・時刻・フラグ・ステップ数をすべて初期化する。`resume=True` で中断点から継続可能（着弾済みの場合は no-op）。
 - `FlightResult.landed` は地面に到達した場合に `True`。
 - `reset()` を呼び出すと、射出条件・時刻・フラグ・ステップ幅がすべて初期状態に戻る。
 
@@ -251,6 +257,7 @@ R_ideal = 213.60 m
 | 飛行時間 | 4.37 s |
 | 抗力による到達距離の低減率 | 約 52.7 % |
 | 無次元抗力パラメータ `k·v0²/g` | 1.94 |
+| 統合ステップ数（固定刻み, `dt=0.01`） | 438 |
 
 `k·v0²/g` は抗力加速度と重力加速度の初速時における比であり、これが 1 を超える場合は
 飛行の初期段階で抗力が重力を上回る。本ケースでは 1.94 であり、抗力の影響は無視できない領域にある。
@@ -266,16 +273,32 @@ test_range_calc_v4` で全件パスする）。
 | `AnalyticAgreementTests` | `k = 0` で射程・飛行時間が閉形式と一致すること（`delta = 1e-4`） |
 | `ConvergenceTests` | 着弾補間により `dt = 0.01` と `dt = 0.0001` で結果が一致すること |
 | `LandingStateTests` | 着弾状態（`y = 0`、下降中、水平発射で原着弾）の妥当性 |
-| `PhysicsTests` | 抗力による射程短縮、最佳角度が 45°未満になること |
-| `RegressionTests` | 基準シナリオの射程 101.12 m・飛行時間の一致 |
-| `SimulatorContractTests` | `reset()` / `resume` の契約、冪等性、引数検証、コアモジュールの I/O 禁止 |
+| `PhysicsTests` | 抗力による射程短縮、最適角度が 45° 未満になること |
+| `RegressionTests` | 基準シナリオの射程 101.12 m・飛行時間 4.37 s に一致すること |
+| `SimulatorContractTests` | `reset()` / `resume` の契約整合・冪等性、引数検証、コアモジュールの I/O 禁止 |
 | `ConfigurationTests` | パラメータ読み込み・検証・未知キー・レガシー互換 |
 | `ScenarioLoadingTests` | `data.csv` 欠損・不正時の既定値退避、CLI 実行 |
 | `NumericalGuardTests` | 発散検出、粗すぎる刻みの警告・例外 |
 
+v5 では `test_adaptive_timestep.py`（7系統・28件）が追加され、合計 82 件となる。適応刻みモード（`adaptive=True`）は、安定性帯内では固定刻みと一致し、安定性帯を超える `dt_max` でも発散せず完走するが、精度改善を保証しない点がこれらのテストで固定されている。
+
 ---
 
-## 9. 変更管理
+## 9. CLI 仕様（v5）
+
+```text
+python range_calc_v4.py [scenario_path] [dt_max] [--adaptive]
+```
+
+- `scenario_path`: `data.csv` のパス（省略可）。指定しない場合は同ディレクトリの `data.csv` を読み込む。
+- `dt_max`: タイムステップの上限値（秒）。省略した場合は `0.01` s。
+- `--adaptive`: 指定すると適応刻みモードを有効にする。省略した場合は固定刻みモードとなり、**挙動は v4 と完全に同一**である。
+
+適応刻みモードでは、各ステップの刻み幅 `h` は `dt_max` を超えない範囲で安定性上限内に短縮される（縮小のみ）。`FlightResult` には `steps` / `timestep_min` / `timestep_max` が含まれ、CLI 出力には `Integration Steps` および `Shortest Step Taken`（`timestep_min < dt_max` の場合）が表示される。
+
+---
+
+## 10. 変更管理
 
 物理定数・方程式を変更する場合、以下を遵守すること。
 
@@ -289,4 +312,4 @@ test_range_calc_v4` で全件パスする）。
 
 ---
 
-*最終更新: range_calc_v4 ベース*
+*最終更新: V5 時点（適応刻みモードをオプション仕様として追記）*
