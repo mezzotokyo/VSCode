@@ -5,7 +5,7 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "LM Studio (local)",
       "options": {
-        "baseURL": "http://iride.local:1234/v1"
+        "baseURL": "http://192.168.20.34:1234/v1"
       },
       "models": {
         "gemma4:e4b": {
