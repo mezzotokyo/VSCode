@@ -2,7 +2,7 @@
 
 Usage::
 
-    python range_calc_v4.py [scenario_path] [dt_max] [--adaptive]
+    python range_calc.py [scenario_path] [dt_max] [--adaptive]
 
 ``dt_max`` is a ceiling: with ``--adaptive`` each step is shortened to stay
 inside the RK4 stability band, so a coarse value trades accuracy for stability

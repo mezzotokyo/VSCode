@@ -1,8 +1,8 @@
-# 物理モデル仕様書 — 弾道シミュレーション（range_calc_v4/v5）
+# 物理モデル仕様書 — 弾道シミュレーション（range_calc v4/v5）
 
-対象コード: `range_calc_v4.py` / `ballistics.py` / `physics_config.py`
+対象コード: `range_calc.py` / `ballistics.py` / `physics_config.py`
 
-本仕様書は v4（固定刻み）を基礎とし、v5 では任意モードとして適応刻み（`adaptive=True`）を追加する。CLI ファイル名 `range_calc_v4.py` は歴史的経緯により v5 時点でも維持されている。
+本仕様書は v4（固定刻み）を基礎とし、v5 では任意モードとして適応刻み（`adaptive=True`）を追加する。v4・v5 時点の CLI は `range_calc_v4.py` という名称だったが、その後 `range_calc.py` に改称されており、現行リポジトリにはこの名称で存在する。
 
 ---
 
@@ -17,7 +17,7 @@
 > **空力抵抗（2次式ドラッグ）のみを考慮して**地面衝突までの距離と飛行時間を求める。
 
 したがって本ツールは **到達距離の相対比較と傾向分析**のためのツールであり、
-実測弾道データとの絶対一致や競技规则的精度を要求する用途には用いない（理由は第7章）。
+実測弾道データとの絶対一致や競技規則的精度を要求する用途には用いない（理由は第7章）。
 
 ---
 
@@ -266,7 +266,7 @@ R_ideal = 213.60 m
 ### 8.3 テストによる検証
 
 `test_range_calc.py` に以下の9系統・全54件のテストが存在する（`python3 -m unittest
-test_range_calc_v4` で全件パスする）。
+test_range_calc` で全件パスする）。
 
 | クラス | 検証対象 |
 |--------|----------|
@@ -287,7 +287,7 @@ v5 では `test_adaptive_timestep.py`（7系統・28件）が追加され、合�
 ## 9. CLI 仕様（v5）
 
 ```text
-python range_calc_v4.py [scenario_path] [dt_max] [--adaptive]
+python range_calc.py [scenario_path] [dt_max] [--adaptive]
 ```
 
 - `scenario_path`: `data.csv` のパス（省略可）。指定しない場合は同ディレクトリの `data.csv` を読み込む。
