@@ -265,7 +265,7 @@ R_ideal = 213.60 m
 
 ### 8.3 テストによる検証
 
-`test_range_calc_v4.py` に以下の9系統・全54件のテストが存在する（`python3 -m unittest
+`test_range_calc.py` に以下の9系統・全54件のテストが存在する（`python3 -m unittest
 test_range_calc_v4` で全件パスする）。
 
 | クラス | 検証対象 |
