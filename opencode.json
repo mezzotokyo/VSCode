@@ -11,7 +11,7 @@
         "gemma4:e4b": {
           "name": "Gemma 4 E4B (LM Studio)",
           "limit": {
-            "context": 32768,
+            "context": 65536,
             "output": 4096
           }
         }
