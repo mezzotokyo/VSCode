@@ -93,11 +93,16 @@ dvy/dt = -k · vy · |v| - g
 
 ## 3. 初期条件と単位変換
 
-| 項目 | 定義元 | 既定値 |
-|------|--------|--------|
-| 発射速度 | `data.csv` 第1フィールド | 170.0 km/h |
-| 発射角 | `data.csv` 第2フィールド | 35.0 ° |
+| 項目 | 定義元（優先順） | 既定値 |
+|------|------------------|--------|
+| 発射速度 | `--v0=<km/h>` → `data.csv` 第1フィールド | 170.0 km/h |
+| 発射角 | `--angle=<deg>` → `data.csv` 第2フィールド | 35.0 ° |
 | 射出点 | `LAUNCH_X`, `LAUNCH_Y` | (0.0, 0.0) |
+
+発射速度と発射角は**フィールド単位で独立に**解決される（`load_scenario()`）。
+CLI オプションで与えられた項目はファイルを読まずに採用され、未指定の項目は
+`data.csv`、そこからも読めない場合は既定値に落ちる。
+両オプションを指定した場合は `data.csv` を一切読まない（欠損警告も発しない）。
 
 ```
 v0_mps = velocity_kmph × 1000 / 3600          (170.0 km/h → 47.2222 m/s)
@@ -287,12 +292,16 @@ v5 では `test_adaptive_timestep.py`（7系統・28件）が追加され、合�
 ## 9. CLI 仕様（v5）
 
 ```text
-python range_calc.py [scenario_path] [dt_max] [--adaptive]
+python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angle=<deg>]
 ```
 
 - `scenario_path`: `data.csv` のパス（省略可）。指定しない場合は同ディレクトリの `data.csv` を読み込む。
 - `dt_max`: タイムステップの上限値（秒）。省略した場合は `0.01` s。
 - `--adaptive`: 指定すると適応刻みモードを有効にする。省略した場合は固定刻みモードとなり、**挙動は v4 と完全に同一**である。
+- `--v0=<km/h>`: 初速の上書き（単位 km/h）。**`=` 書式のみ受理**（`--v0 160` はエラー）。省略時は第3章の定義元に従う。
+- `--angle=<deg>`: 発射角の上書き（単位 °）。書式・省略時の挙動は `--v0` と同じ。
+  両オプションともフィールド単位で独立にフォールバックし（引数 → CSV → 既定値）、
+  両方指定した場合は `data.csv` を読まない。不正値・`=` なし・重複指定は `SystemExit` で拒否される。
 
 適応刻みモードでは、各ステップの刻み幅 `h` は `dt_max` を超えない範囲で安定性上限内に短縮される（縮小のみ）。`FlightResult` には `steps` / `timestep_min` / `timestep_max` が含まれ、CLI 出力には `Integration Steps` および `Shortest Step Taken`（`timestep_min < dt_max` の場合）が表示される。
 

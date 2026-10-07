@@ -2,11 +2,13 @@
 
 Usage::
 
-    python range_calc.py [scenario_path] [dt_max] [--adaptive]
+    python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angle=<deg>]
 
 ``dt_max`` is a ceiling: with ``--adaptive`` each step is shortened to stay
 inside the RK4 stability band, so a coarse value trades accuracy for stability
-rather than diverging.
+rather than diverging. ``--v0`` and ``--angle`` override the launch conditions
+per field, falling back to the scenario file and then to the built-in
+defaults.
 
 All physics lives in :mod:`ballistics`; this module only handles input parsing,
 unit conversion, and presentation.
@@ -42,12 +44,32 @@ __all__ = [
 ]
 
 
-def load_scenario(path: Path | str | None = None) -> tuple[float, float]:
-    """Read ``velocity_kmph, angle_deg`` and fall back to the defaults.
+def load_scenario(
+    path: Path | str | None = None,
+    *,
+    v0_kmph: float | None = None,
+    angle_deg: float | None = None,
+) -> tuple[float, float]:
+    """Resolve ``velocity_kmph, angle_deg`` per field with fallback.
 
-    A missing file, an unparsable number, or a short line all resolve to the
-    default scenario instead of raising.
+    Each field uses ``v0_kmph`` / ``angle_deg`` when provided, otherwise the
+    scenario file, otherwise the built-in defaults. The file is read only when
+    a field still needs it; a missing file, an unparsable number, or a short
+    line resolves to the default instead of raising.
     """
+    velocity = v0_kmph
+    angle = angle_deg
+    if velocity is None or angle is None:
+        file_velocity, file_angle = _read_scenario(path)
+        if velocity is None:
+            velocity = file_velocity
+        if angle is None:
+            angle = file_angle
+    return velocity, angle
+
+
+def _read_scenario(path: Path | str | None) -> tuple[float, float]:
+    """Read ``velocity_kmph, angle_deg`` and fall back to the defaults."""
     data_path = Path(path) if path is not None else DATA_PATH
     try:
         line = data_path.read_text(encoding="utf-8").splitlines()[0]
@@ -62,13 +84,18 @@ def load_scenario(path: Path | str | None = None) -> tuple[float, float]:
         return DEFAULT_VELOCITY_KMPH, DEFAULT_ANGLE_DEG
 
 
-def parse_args(argv: list[str] | None = None) -> tuple[Path | str | None, float, bool]:
-    """Split ``argv`` into a scenario path, a timestep ceiling, and the mode flag.
+def parse_args(
+    argv: list[str] | None = None,
+) -> tuple[Path | str | None, float, bool, float | None, float | None]:
+    """Split ``argv`` into path, ceiling, mode flag, and launch overrides.
 
-    Positional arguments are ``[scenario_path] [dt_max]``; ``--adaptive`` switches
-    the integrator to the adaptive-timestep mode. An empty or omitted ``argv``
-    yields the shipped defaults, which is what ``main()`` relies on; the
-    ``__main__`` block is what forwards the real command line.
+    Positional arguments are ``[scenario_path] [dt_max]``; ``--adaptive``
+    switches the integrator to the adaptive-timestep mode. Launch conditions
+    may be overridden with ``--v0=<km/h>`` and ``--angle=<deg>`` (equals form
+    only); each field independently falls back to the scenario file and then
+    to the built-in defaults. An empty or omitted ``argv`` yields the shipped
+    defaults, which is what ``main()`` relies on; the ``__main__`` block is
+    what forwards the real command line.
     """
     args = list(argv or [])
     adaptive = False
@@ -76,54 +103,57 @@ def parse_args(argv: list[str] | None = None) -> tuple[Path | str | None, float,
         args.remove("--adaptive")
         adaptive = True
 
-    # Try to parse positional arguments flexibly: allow [scenario] [dt_max]
-    # and also [dt_max] [scenario] when present. Flags are stripped above.
+    v0: float | None = None
+    angle: float | None = None
+    positional: list[str] = []
+    for token in args:
+        if token in ("--v0", "--angle"):
+            raise SystemExit(
+                f"error: {token} requires the equals form, e.g. {token}=170"
+            )
+        if token.startswith("--v0=") or token.startswith("--angle="):
+            name, _, raw = token.partition("=")
+            value = _parse_override(name, raw)
+            if name == "--v0":
+                if v0 is not None:
+                    raise SystemExit("error: --v0 given more than once")
+                v0 = value
+            else:
+                if angle is not None:
+                    raise SystemExit("error: --angle given more than once")
+                angle = value
+            continue
+        positional.append(token)
+
     path: Path | str | None = None
     dt_max = DEFAULT_TIMESTEP
-    candidates = [a for a in args if a]
-    for token in list(candidates):
-        # try as float if it looks like a number
-        if path is None:
-            # maybe dt_max?
-            try:
-                # number?
-                float(token)
-                # could be dt_max; prefer to put dt_max if next is path? or heuristics
-                # simple: if no dt set yet and this is the only numeric, or if we haven't set path by string
-                pass
-            except ValueError:
-                # treat as path
-                path = token
-                candidates.remove(token)
-                break
-    # better approach: scan all and assign numeric to dt_max if plausible, non-numeric to path
-    remaining = []
-    for token in args:
-        if token == "--adaptive":
+    for token in positional:
+        if token == "":
             continue
-        remaining.append(token)
-    path = None
-    dt_max = DEFAULT_TIMESTEP
-    for token in remaining:
-        # number (int/float, possibly negative not expected but let float handle)
         try:
-            # detect number
-            val = float(token)
-            dt_max = val
-            continue
+            dt_max = float(token)
         except ValueError:
             if path is None:
                 path = token
-            # else ignore extra
-    if isinstance(path, str) and path == "":
-        path = None
-    return path, dt_max, adaptive
+    return path, dt_max, adaptive, v0, angle
+
+
+def _parse_override(name: str, raw: str) -> float:
+    try:
+        value = float(raw)
+    except ValueError:
+        raise SystemExit(f"error: {name} expects a number, got {raw!r}") from None
+    if not math.isfinite(value):
+        raise SystemExit(f"error: {name} expects a finite number, got {raw!r}")
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
-    path, dt_max, adaptive = parse_args(argv)
+    path, dt_max, adaptive, v0_kmph, angle_override = parse_args(argv)
 
-    velocity_kmph, angle_deg = load_scenario(path)
+    velocity_kmph, angle_deg = load_scenario(
+        path, v0_kmph=v0_kmph, angle_deg=angle_override
+    )
 
     velocity_mps = velocity_kmph * KMPH_TO_MPS
     angle_rad = math.radians(angle_deg)

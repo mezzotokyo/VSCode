@@ -254,14 +254,57 @@ class CommandLineTests(unittest.TestCase):
     def test_empty_path_falls_back_to_the_shipped_scenario(self):
         with warnings.catch_warnings():
             warnings.simplefilter('error')
-            self.assertEqual(range_calc.parse_args(['']), (None, 0.01, False))
+            self.assertEqual(range_calc.parse_args(['']), (None, 0.01, False, None, None))
 
     def test_parse_args_defaults(self):
-        self.assertEqual(range_calc.parse_args(None), (None, 0.01, False))
+        self.assertEqual(range_calc.parse_args(None), (None, 0.01, False, None, None))
         self.assertEqual(
             range_calc.parse_args(['data.csv', '0.05', '--adaptive']),
-            ('data.csv', 0.05, True),
+            ('data.csv', 0.05, True, None, None),
         )
+
+    def test_parse_args_returns_launch_overrides(self):
+        self.assertEqual(
+            range_calc.parse_args(['--v0=160', '--angle=40']),
+            (None, 0.01, False, 160.0, 40.0),
+        )
+        self.assertEqual(
+            range_calc.parse_args(['data.csv', '--angle=40']),
+            ('data.csv', 0.01, False, None, 40.0),
+        )
+
+    def test_both_overrides_are_reported_without_touching_the_file(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            _, output = self.run_main(['missing.csv', '--v0=160', '--angle=40'])
+        self.assertIn('Input Velocity: 160.0 km/h', output)
+        self.assertIn('Launch Angle: 40.0 deg', output)
+
+    def test_single_override_falls_back_per_field(self):
+        _, output = self.run_main(['--v0=160'])
+        self.assertIn('Input Velocity: 160.0 km/h', output)
+        self.assertIn('Launch Angle: 35.0 deg', output)
+
+    def test_single_override_with_missing_file_uses_the_default_angle(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            _, output = self.run_main(['missing.csv', '--v0=160'])
+        self.assertIn('Input Velocity: 160.0 km/h', output)
+        self.assertIn('Launch Angle: 35.0 deg', output)
+
+    def test_bare_override_flags_are_rejected(self):
+        for flag in ('--v0', '--angle'):
+            with self.subTest(flag=flag):
+                with self.assertRaises(SystemExit):
+                    range_calc.parse_args([flag])
+
+    def test_non_numeric_override_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            range_calc.parse_args(['--v0=fast'])
+
+    def test_duplicate_override_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            range_calc.parse_args(['--v0=160', '--v0=170'])
 
 
 if __name__ == '__main__':
