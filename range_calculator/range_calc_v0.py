@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 # --- GLOBAL PHYSICAL CONSTANTS & PROJECTILE SETUP ---
 # These constants define the scenario and should ideally come from configuration files.
@@ -97,9 +98,9 @@ if __name__ == '__main__':
     # ============================================================
     # I/O Layer: Reading Input and Handling Defaults (FILE DEPENDENCY)
     # ============================================================
-    file_path = 'data.csv'
+    file_path = Path(__file__).resolve().parent / 'data.csv'
     try:
-        with open(file_path, 'r') as f:
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
             line = f.readline().strip()
         if line:
             # Successfully read data from file

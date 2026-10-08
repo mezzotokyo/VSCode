@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 # --- GLOBAL PHYSICAL CONSTANTS & PROJECTILE SETUP ---
 # These constants define the scenario and should ideally come from configuration files.
@@ -83,40 +84,40 @@ class ProjectileSimulator:
 # --- EXECUTION AND I/O LAYER (The "Main Block") ---
 
 if __name__ == '__main__':
-# Read input data from CSV file
+    # Read input data from CSV file
     try:
-        with open('data.csv', 'r') as f:
+        with open(Path(__file__).resolve().parent / 'data.csv', 'r', encoding='utf-8-sig') as f:
             line = f.readline().strip()
         parts = line.split(',')
         V0_KMPH = float(parts[0])
         ANGLE_DEG = float(parts[1])
-    except FileNotFoundError:
-    # Fallback to default values if data.csv is not found or unreadable
+    except (OSError, ValueError, UnicodeDecodeError):
+        # Fallback to default values if data.csv is not found or unreadable
         V0_KMPH = 170.0 # Default Initial Velocity (km/h)
         ANGLE_DEG = 35.0  # Default Launch Angle (degrees)
 
-# Unit Conversion (Input Preparation)
-v0_mps = V0_KMPH * (1000 / 3600)
-angle_rad = math.radians(ANGLE_DEG)
+    # Unit Conversion (Input Preparation)
+    v0_mps = V0_KMPH * (1000 / 3600)
+    angle_rad = math.radians(ANGLE_DEG)
 
-# Drag Scaling Factor calculation (using constants from the file/user input)
-constants = {
-    'drag_scaling_factor': ProjectileConstants.drag_scaling_factor()
-}
+    # Drag Scaling Factor calculation (using constants from the file/user input)
+    constants = {
+        'drag_scaling_factor': ProjectileConstants.drag_scaling_factor()
+    }
 
-# 1. Ideal calculation (No drag)
-simulator_ideal = ProjectileSimulator(v0_mps, angle_rad, constants)
-range_ideal = simulator_ideal.calculate_ideal_range()
+    # 1. Ideal calculation (No drag)
+    simulator_ideal = ProjectileSimulator(v0_mps, angle_rad, constants)
+    range_ideal = simulator_ideal.calculate_ideal_range()
 
-# 2. Realistic calculation (With drag)
-simulator_drag = ProjectileSimulator(v0_mps, angle_rad, constants)
-range_drag, final_time = simulator_drag.run_simulation()
+    # 2. Realistic calculation (With drag)
+    simulator_drag = ProjectileSimulator(v0_mps, angle_rad, constants)
+    range_drag, final_time = simulator_drag.run_simulation()
 
-# --- Output Results ---
-print("--- Simulation Results ---")
-print(f"Input Velocity: {V0_KMPH} km/h")
-print(f"Launch Angle: {ANGLE_DEG}°")
-print("\n--- Range Comparison ---")
-print(f"Ideal Range (No Drag): {range_ideal:.2f} m")
-print(f"Realistic Range (With Drag): {range_drag:.2f} m")
-print(f"Actual Flight Time: {final_time:.2f} s")
+    # --- Output Results ---
+    print("--- Simulation Results ---")
+    print(f"Input Velocity: {V0_KMPH} km/h")
+    print(f"Launch Angle: {ANGLE_DEG}°")
+    print("\n--- Range Comparison ---")
+    print(f"Ideal Range (No Drag): {range_ideal:.2f} m")
+    print(f"Realistic Range (With Drag): {range_drag:.2f} m")
+    print(f"Actual Flight Time: {final_time:.2f} s")

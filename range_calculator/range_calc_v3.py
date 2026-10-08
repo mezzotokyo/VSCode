@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 # --- GLOBAL PHYSICAL CONSTANTS & PROJECTILE SETUP ---
 # These constants define the scenario and should ideally come from configuration files.
@@ -112,13 +113,13 @@ class ProjectileSimulator:
 if __name__ == '__main__':
     # Read input data from CSV file
     try:
-        with open('data.csv', 'r') as f:
+        with open(Path(__file__).resolve().parent / 'data.csv', 'r', encoding='utf-8-sig') as f:
             line = f.readline().strip()
         parts = line.split(',')
         V0_KMPH = float(parts[0])
         ANGLE_DEG = float(parts[1])
-    except FileNotFoundError:
-    # Fallback to default values if data.csv is not found or unreadable
+    except (OSError, ValueError, UnicodeDecodeError):
+        # Fallback to default values if data.csv is not found or unreadable
         V0_KMPH = 170.0 # Default Initial Velocity (km/h)
         ANGLE_DEG = 35.0  # Default Launch Angle (degrees)
 
