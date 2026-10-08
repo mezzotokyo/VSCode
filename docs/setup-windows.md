@@ -69,6 +69,14 @@ git config core.hooksPath .githooks
 コミットが拒否される。フックを一時的に迂回したい場合のみ
 `git commit --no-verify` を使う。
 
+**`core.fileMode` を共有コンフィグに設定しない。** 本リポジトリの
+`.git/config` は iCloud 経由で全機体に共有される。Windows で
+`core.fileMode=true` を書くと同期で macOS 側にも波及し、Windows 側では
+実行ビットを表現できない `.githooks/pre-commit`（100755）が常に `M` 表示と
+なり、誤ってコミットすると macOS でフックが黙って無効化される。**設定せず
+OS 既定値のままにする**（macOS は `true`・Windows は `false` で、どちらも
+このリポジトリにとって正しい）。
+
 ## 5. 注意事項
 
 - **`data.csv` を Excel で開いて保存しない。** 保存すると BOM または
