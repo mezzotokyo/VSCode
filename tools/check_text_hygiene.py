@@ -14,6 +14,10 @@ Usage::
     python3 tools/check_text_hygiene.py                # whole repository
     python3 tools/check_text_hygiene.py range_calculator/HISTORY.md
     python3 tools/check_text_hygiene.py --list-rules   # show the rule sets
+
+On Windows, ``python`` may be used in place of ``python3`` when the
+``python3`` alias is unavailable (for example, a python.org installation
+without the Python Install Manager).
 """
 
 from __future__ import annotations
@@ -144,6 +148,20 @@ def classify(char: str) -> str | None:
     return None
 
 
+def _in_nested_repo(path: Path, root: Path) -> bool:
+    """Return True when ``path`` lies inside a repository nested under ``root``.
+
+    A nested checkout carries its own copy of this tool's rule literals, so
+    scanning it would report false positives that are not part of ``root``.
+    """
+    current = path.parent
+    while current != root and current != current.parent:
+        if (current / '.git').exists():
+            return True
+        current = current.parent
+    return False
+
+
 def iter_files(roots: list[Path]) -> list[Path]:
     found: list[Path] = []
     for root in roots:
@@ -154,6 +172,8 @@ def iter_files(roots: list[Path]) -> list[Path]:
             if not path.is_file():
                 continue
             if SKIP_DIRECTORIES & set(path.parts):
+                continue
+            if _in_nested_repo(path, root):
                 continue
             if path.suffix in SKIP_SUFFIXES:
                 continue
@@ -180,6 +200,8 @@ def scan(path: Path) -> list[tuple[int, int, str, str, str]]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('paths', nargs='*', default=['.'], help='files or directories')
     parser.add_argument(
