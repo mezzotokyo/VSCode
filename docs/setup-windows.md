@@ -16,9 +16,27 @@ Python が未導入の場合は Microsoft Store で「Python Software Foundation
 パッケージをインストールする（有償の表示が出ている場合は選択を間違えている）。
 
 `gh` は認証時にブラウザが開くため、表示されたコードを
-https://github.com/login/device に enter して承認する（Windows ではコードは
+https://github.com/login/device に入力して承認する（Windows ではコードは
 クリップボードに入らないので控える）。以降の `git clone` / `git push` は
 パスワード入力不要（gh が credential helper として働く）。
+
+`gh` が「コマンドが見つからない」と出る場合、インストーラが更新した PATH を
+開いているシェルがまだ読み込んでいないのが原因。**新しい PowerShell を開く**。
+それでも無ければ PATH をその場で補完して確認する:
+
+```powershell
+$env:Path += ";$env:LocalAppData\Programs\GitHub CLI"
+gh --version
+```
+
+常時入るよう永続化する（1回だけ）:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$env:LocalAppData\Programs\GitHub CLI", "User")
+```
+
+`where.exe gh` が何も返さない場合はインストール自体が失敗しているので
+`winget install GitHub.cli` を再実行する。
 
 ## 2. Python の確認
 
