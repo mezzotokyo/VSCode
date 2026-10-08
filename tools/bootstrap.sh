@@ -23,6 +23,17 @@ fail() {
     exit 1
 }
 
+# 同一ファイル（ターゲットが本リポジトリ自身）や内容が既に一致する場合は
+# cp を省略する。cp は同一パス指定でエラー終了するため。
+put() {
+    src=$1
+    dst=$2
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+        return 0
+    fi
+    cp "$src" "$dst"
+}
+
 command -v git >/dev/null 2>&1 || fail 'git not found'
 command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || command -v py >/dev/null 2>&1 || fail 'Python not found (python3 / python / py)'
 
@@ -45,9 +56,9 @@ else
 fi
 
 mkdir -p "$TARGET/tools" "$TARGET/.githooks"
-cp "$SRC_TOOL" "$TARGET/tools/check_text_hygiene.py"
-cp "$SRC_HOOK" "$TARGET/.githooks/pre-commit"
-cp "$SRC_ATTR" "$TARGET/.gitattributes"
+put "$SRC_TOOL" "$TARGET/tools/check_text_hygiene.py"
+put "$SRC_HOOK" "$TARGET/.githooks/pre-commit"
+put "$SRC_ATTR" "$TARGET/.gitattributes"
 
 if [ -f "$TARGET/.gitignore" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
