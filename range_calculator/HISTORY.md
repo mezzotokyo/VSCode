@@ -285,7 +285,10 @@ CLI にも `Integration Steps` と `Shortest Step Taken` を表示した。
 python range_calc_v4.py [scenario_path] [dt_max] [--adaptive]
 ```
 
-`dt_max` を省略した場合は 0.01 s。`--adaptive` なしの場合の挙動は V4 と完全に同一である。なお、ファイル名 `range_calc_v4.py` は歴史的経緯により V5 時点でもそのままとしている。
+`dt_max` を省略した場合は 0.01 s。`--adaptive` なしの場合の挙動は V4 と完全に同一である。
+なお、この時点でファイル名は `range_calc_v4.py` であったが、後日 `range_calc.py` に改称された
+（末尾の「V5 以降の変更」に記載の「CLI ファイル名の改称」を参照。
+現行リポジトリに `range_calc_v4.py` は存在しない）。
 
 ### 出力値（基準シナリオ）
 

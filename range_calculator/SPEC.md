@@ -270,8 +270,17 @@ R_ideal = 213.60 m
 
 ### 8.3 テストによる検証
 
-`test_range_calc.py` に以下の9系統・全54件のテストが存在する（`python3 -m unittest
-test_range_calc` で全件パスする）。
+`test_range_calc.py` に以下の9系統・全54件のテストが存在する。テストはフラット
+import（`import ballistics` 等）を用いるため、カレントディレクトリに注意すること
+（リポジトリルートまたは `range_calculator/` のどちらからでも実行できる）:
+
+```text
+python3 -m unittest discover -s range_calculator -p "test_*.py"   # リポジトリルートから
+python3 -m unittest test_range_calc                               # range_calculator/ から
+```
+
+Windows では `python3` の代わりに `python` でもよい（Python Install Manager 槙成では
+両方とも有効）。
 
 | クラス | 検証対象 |
 |--------|----------|
@@ -285,7 +294,7 @@ test_range_calc` で全件パスする）。
 | `ScenarioLoadingTests` | `data.csv` 欠損・不正時の既定値退避、CLI 実行 |
 | `NumericalGuardTests` | 発散検出、粗すぎる刻みの警告・例外 |
 
-v5 では `test_adaptive_timestep.py`（7系統・28件）が追加され、合計 82 件となる。適応刻みモード（`adaptive=True`）は、安定性帯内では固定刻みと一致し、安定性帯を超える `dt_max` でも発散せず完走するが、精度改善を保証しない点がこれらのテストで固定されている。
+v5 では `test_adaptive_timestep.py`（7系統・全35件）が追加され、合計 89 件となる。適応刻みモード（`adaptive=True`）は、安定性帯内では固定刻みと一致し、安定性帯を超える `dt_max` でも発散せず完走するが、精度改善を保証しない点がこれらのテストで固定されている。
 
 ---
 
@@ -321,4 +330,23 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 
 ---
 
-*最終更新: V5 時点（適応刻みモードをオプション仕様として追記）*
+## 11. 開発環境と検証手順
+
+- **Python**: 3.9 以上（標準ライブラリのみで動作する）。macOS / Windows 11 の
+  Python 3.14 で検証している。Windows は Python Install Manager 槙成であり、
+  `python3` / `python` / `py` のいずれでも起動できる。
+- **テスト**: 8.3 節のコマンドを実行し、89 件すべてがパスすることを確認する。
+- **文字混入検査**: `python3 tools/check_text_hygiene.py`（`0 finding(s)` が正常）。
+- **pre-commit フック**: クローンごとに一度だけ次を実行する。
+
+  ```text
+  git config core.hooksPath .githooks
+  ```
+
+  以降、コミット時に `tools/check_text_hygiene.py` が自動実行され、
+  混入文字が 1 件でもあればコミットが拒否される（フック本体は `.githooks/pre-commit`、
+  Windows のセットアップ手順は `docs/setup-windows.md` を参照）。
+
+---
+
+*最終更新: 開発環境と検証手順（第11章）を追加（2026-10-08）*
