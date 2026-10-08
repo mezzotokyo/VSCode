@@ -12,14 +12,27 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 |--------|------|------|
 | Python 3.9 以上 | 文字混入検査・テストの実行 | macOS: Xcode CLT ／ Windows: Python Install Manager ／ Linux: ディストリのパッケージ |
 | Git | リポジトリ操作・フック実行 | フックは POSIX シェル。Windows は Git Bash の `sh` / `bash` で実行 |
+| GitHub CLI (`gh`) | GitHub 認証・リポジトリ操作 | 認証は `gh auth login` 1 回。HTTPS の credential helper を gh が引き受ける |
 
 各 OS の導入手順:
 
 - **macOS**: `xcode-select --install` で `/usr/bin/python3` と `git` が入る。
-  （Homebrew 利用の場合: `brew install python git`）
+  （Homebrew 利用の場合: `brew install python git gh`）
 - **Windows**: Microsoft Store の「Python Software Foundation」製 Python と Git for Windows。
-  詳細は `docs/setup-windows.md` を参照。
-- **Linux (例: Ubuntu)**: `sudo apt install python3 git`
+  `gh` は `winget install GitHub.cli`。詳細は `docs/setup-windows.md` を参照。
+- **Linux (例: Ubuntu)**: `sudo apt install python3 git` ／ `gh` は
+  [公式手順](https://cli.github.com/) で導入
+
+### GitHub 認証（初回のみ・マシンごと）
+
+```sh
+gh auth login --hostname github.com --git-protocol https --web
+```
+
+表示されたコードを https://github.com/login/device に入力して承認する。
+macOS ではコードがクリップボードに入る。以後、`git clone` / `git push` は
+パスワード入力不要（gh が credential helper として働く）。
+トークン失効時は `gh auth refresh` で再認証する。
 
 ## 2. リポジトリの取得とフック有効化
 
@@ -56,6 +69,7 @@ bash tools/bootstrap.sh .            # 再実行しても失敗しない（冪�
 ## 4. 新規リポジトリの作成
 
 1. ホスト（GitHub / GitLab / Gitea 等）で空リポジトリを作成
+   （GitHub なら `gh repo create <名前> --private`）
 2. `git clone <new-origin> myproj && cd myproj`
 3. 雛形を配布: `bash <既存ツールのあるリポジトリ>/tools/bootstrap.sh .`
 4. 初期ファイルをコミットして `git push -u origin <ブランチ名>`

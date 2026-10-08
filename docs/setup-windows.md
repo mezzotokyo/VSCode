@@ -10,9 +10,15 @@ macOS と挙動を合わせるため、コマンド例は `python3` 表記で統
 |--------|------|------|
 | Python 3.9 以上 | 本体・テストの実行 | Python 3.14 で検証済み。Python Install Manager 槙成なら `python3` / `python` / `py` のどれでも起動できる |
 | Git for Windows | リポジトリ操作・フック実行 | フックは POSIX シェルで書かれているが、Git for Windows は `sh` を同梱しているためそのまま動く |
+| GitHub CLI (`gh`) | GitHub 認証 | `winget install GitHub.cli`。初回のみ `gh auth login --hostname github.com --git-protocol https --web` |
 
 Python が未導入の場合は Microsoft Store で「Python Software Foundation」提供の
 パッケージをインストールする（有償の表示が出ている場合は選択を間違えている）。
+
+`gh` は認証時にブラウザが開くため、表示されたコードを
+https://github.com/login/device に enter して承認する（Windows ではコードは
+クリップボードに入らないので控える）。以降の `git clone` / `git push` は
+パスワード入力不要（gh が credential helper として働く）。
 
 ## 2. Python の確認
 
