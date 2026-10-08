@@ -41,8 +41,11 @@ macOS ではコードがクリップボードに入る。以後、`git clone` / 
 ```sh
 git clone <origin のURL> <ディレクトリ名>
 cd <ディレクトリ名>
-bash tools/bootstrap.sh .      # POSIX/Windows 共通。実行ビット無しでも動く
+bash tools/bootstrap.sh .
 ```
+
+`bash tools/bootstrap.sh .` は POSIX/Windows 共通で、実行ビット無しでも動く
+（`sh` や `zsh` から実行しても同じ）。
 
 `tools/bootstrap.sh` は次のことを自動で行う（冪等・何度実行しても安全）:
 
@@ -59,9 +62,12 @@ bash tools/bootstrap.sh .      # POSIX/Windows 共通。実行ビット無しで
 ## 3. 検証
 
 ```sh
-bash tools/check_text_hygiene.py      # 期待値: scanned N file(s), 0 finding(s)
-bash tools/bootstrap.sh .            # 再実行しても失敗しない（冪等チェック）
+python3 tools/check_text_hygiene.py
+bash tools/bootstrap.sh .
 ```
+
+期待値は `scanned N file(s), 0 finding(s)`（N はスキャン対象のファイル数）で、
+`bootstrap.sh` は 2 回目以降も成功する（冪等チェック）。
 
 任意でフック発火確認: ハングルを 1 文字混入させたファイルを一時的に追加して
 `git commit` が拒否されることを確認し、元に戻す。
@@ -82,8 +88,10 @@ bash tools/bootstrap.sh .            # 再実行しても失敗しない（冪�
 
 ```sh
 git remote add origin <origin のURL>
-git push -u origin <ブランチ名>      # 例: main / v5
+git push -u origin <ブランチ名>
 ```
+
+`<ブランチ名>` は `main` / `v5` などの実際のブランチ名に置き換える。
 
 ## 6. クロス機共通の注意
 
