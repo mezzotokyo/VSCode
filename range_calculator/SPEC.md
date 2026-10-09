@@ -279,8 +279,8 @@ python3 -m unittest discover -s range_calculator -p "test_*.py"   # リポジト
 python3 -m unittest test_range_calc                               # range_calculator/ から
 ```
 
-Windows では `python3` の代わりに `python` でもよい（Python Install Manager 槙成では
-両方とも有効）。
+Windows では `python3` の代わりに `python` でもよい（Scoop 構成では `python` と
+`python3` の両方が有効。`py` は解決されない）。
 
 | クラス | 検証対象 |
 |--------|----------|
@@ -333,8 +333,8 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 ## 11. 開発環境と検証手順
 
 - **Python**: 3.9 以上（標準ライブラリのみで動作する）。macOS / Windows 11 の
-  Python 3.14 で検証している。Windows は Python Install Manager 槙成であり、
-  `python3` / `python` / `py` のいずれでも起動できる。
+  Python 3.14 で検証している。Windows は Scoop 構成であり、`python` / `python3` で
+  起動できる（`py` は解決されない。詳細は `docs/setup-windows.md` を参照）。
 - **テスト**: 8.3 節のコマンドを実行し、89 件すべてがパスすることを確認する。
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`（`0 finding(s)` が正常）。
 - **pre-commit フック**: クローンごとに一度だけ次を実行する。
@@ -349,4 +349,4 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 
 ---
 
-*最終更新: 開発環境と検証手順（第11章）を追加（2026-10-08）*
+*最終更新: Windows の前提を Scoop 構成に是正し、§8.3・§11 の記述と `docs/setup-windows.md` の整合を取った（2026-10-09）*
