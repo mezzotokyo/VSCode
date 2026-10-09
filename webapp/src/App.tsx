@@ -4,11 +4,20 @@ import { TrajectoryChart } from './components/TrajectoryChart'
 import type { SimulateRequest, SimulateResponse } from './types'
 import './App.css'
 
+const DRAG_COEFFICIENT_DEFAULT = 0.47
+const DRAG_PRESETS = [
+  { value: DRAG_COEFFICIENT_DEFAULT, label: '球体（既定値）' },
+  { value: 0.348, label: 'MLB（無回転）' },
+  { value: 0.358, label: 'MLB（2500rpm, 自由飛行）' },
+  { value: 0.3, label: 'NPB' },
+] as const
+
 const INITIAL_REQUEST: SimulateRequest = {
   velocity_kmph: 170,
   angle_deg: 35,
   dt: 0.01,
   adaptive: false,
+  parameters: { drag_coefficient: DRAG_COEFFICIENT_DEFAULT },
 }
 
 const DT_MIN = 0.0001
@@ -76,17 +85,11 @@ export default function App() {
 
   const result = data?.result ?? null
   const trajectory = data?.trajectory ?? []
+  const adaptiveRun = data?.input.adaptive ?? false
   const reduction =
     result && result.ideal_range > 0
       ? ((result.ideal_range - result.ground_range) / result.ideal_range) * 100
       : 0
-  const requestedDt = data?.input.dt ?? null
-  const shortestStep =
-    result?.timestep_min != null &&
-    requestedDt != null &&
-    result.timestep_min < requestedDt
-      ? result.timestep_min
-      : null
 
   return (
     <main className="app">
@@ -131,6 +134,28 @@ export default function App() {
                 setForm({ ...form, angle_deg: Number(event.target.value) })
               }
             />
+          </label>
+
+          <label className="field inline">
+            <span>抗力係数 Cd</span>
+            <select
+              value={String(form.parameters?.drag_coefficient ?? DRAG_COEFFICIENT_DEFAULT)}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  parameters: {
+                    ...form.parameters,
+                    drag_coefficient: Number(event.target.value),
+                  },
+                })
+              }
+            >
+              {DRAG_PRESETS.map((preset) => (
+                <option key={preset.value} value={String(preset.value)}>
+                  {preset.label}（Cd={preset.value}）
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="field inline">
@@ -210,10 +235,10 @@ export default function App() {
                   <dt>積分ステップ数</dt>
                   <dd>{result.steps}</dd>
                 </div>
-                {shortestStep !== null && (
+                {result.timestep_min !== null && (
                   <div>
-                    <dt>最短刻み</dt>
-                    <dd>{formatDecimal(shortestStep)} s</dd>
+                    <dt>{adaptiveRun ? '最短刻み' : '刻み幅'}</dt>
+                    <dd>{formatDecimal(result.timestep_min)} s</dd>
                   </div>
                 )}
                 <div>

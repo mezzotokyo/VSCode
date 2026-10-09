@@ -1,8 +1,13 @@
+export interface PhysicsParameters {
+  drag_coefficient?: number
+}
+
 export interface SimulateRequest {
   velocity_kmph: number
   angle_deg: number
   dt: number
   adaptive: boolean
+  parameters?: PhysicsParameters
 }
 
 export interface TrajectoryPoint {

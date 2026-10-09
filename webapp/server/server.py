@@ -2,8 +2,8 @@
 """JSON API for the projectile simulator, built on the standard library only.
 
 The server reuses the tested physics in ``range_calculator`` (``ballistics`` and
-``physics_config``) instead of re-implementing it. It exposes two read-only
-endpoints on top of that core:
+``physics_config``) instead of re-implementing it. It exposes three endpoints on
+top of that core (two read-only GET and one POST):
 
     GET  /api/health    liveness probe
     GET  /api/config    built-in defaults for the launch scenario

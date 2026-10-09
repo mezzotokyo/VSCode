@@ -80,6 +80,15 @@
   font: inherit;
 }
 
+.field.inline select {
+  max-width: 62%;
+  padding: 6px 10px;
+  border: 1px solid #bcccdc;
+  border-radius: 8px;
+  font: inherit;
+  background: #ffffff;
+}
+
 .field.checkbox {
   flex-direction: row;
   align-items: center;
