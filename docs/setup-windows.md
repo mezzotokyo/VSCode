@@ -119,12 +119,10 @@ git config core.hooksPath .githooks
 コミットが拒否される。フックを一時的に迂回したい場合のみ
 `git commit --no-verify` を使う。
 
-**`core.fileMode` を共有コンフィグに設定しない。** 本リポジトリの
-`.git/config` は iCloud 経由で全機体に共有される。Windows で
-`core.fileMode=true` を書くと同期で macOS 側にも波及し、Windows 側では
-実行ビットを表現できない `.githooks/pre-commit`（100755）が常に `M` 表示と
-なり、誤ってコミットすると macOS でフックが黙って無効化される。**設定せず
-OS 既定値のままにする**（macOS は `true`・Windows は `false` で、どちらも
+**`core.fileMode` を `true` にしない。** Windows は実行ビットを表現できないため、
+`core.fileMode=true` にすると `.githooks/pre-commit`（100755）が常に `M` 表示と
+なり、誤ってコミットすると macOS/Linux 側でフックが黙って無効化される。**設定せず
+OS 既定値のままにする**（macOS/Linux は `true`・Windows は `false` で、どちらも
 このリポジトリにとって正しい）。
 
 ## 5. 注意事項
@@ -137,13 +135,11 @@ OS 既定値のままにする**（macOS は `true`・Windows は `false` で、
 - **バージョン要件は Python 3.9 以上。** 現在は 3.14 で検証している。
 - Scoop 版ツールは `scoop update`（個別なら `scoop update python`）で更新する。
   更新後にテストが落ちた場合は `python --version` でバージョン差分を確認する。
-- **リポジトリの中では `git clone` を実行しない。** 本リポジトリは
-  iCloud Drive（Desktop & Documents 同期）で機体間共有されており、
-  リポジトリ内に `git clone` すると同じリポジトリが `src/` としてネストされる。
-  ネスト側の文字混入リテラルを誤検出してコミットがブロックされるため、
-  ネストを作ってしまった場合はそのディレクトリを削除する（独自変更がなければ
-  安全）。複製が必要な場合は同期フォルダの外（例: ローカルドライブ直下）で
-  クローンすること。
+- **リポジトリの中では `git clone` を実行しない。** リポジトリ内に `git clone`
+  すると同じリポジトリが `src/` としてネストされる。ネスト側の文字混入リテラルを
+  誤検出してコミットがブロックされるため、ネストを作ってしまった場合はその
+  ディレクトリを削除する（独自変更がなければ安全）。複製が必要な場合は
+  リポジトリの外（例: ローカルドライブ直下）でクローンすること。
 
 ## 6. 関連文書
 

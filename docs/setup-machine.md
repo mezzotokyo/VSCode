@@ -98,14 +98,20 @@ git push -u origin <ブランチ名>
 - **リポジトリの内部で `git clone` を実行しない。**
   ネストされたリポジトリが誤検出の原因になり、コミットがブロックされる。
 - **`core.fileMode` は設定しない（各 OS の既定値のまま）。**
-  macOS/Linux は `true`・Windows は `false` が正しい。共有コンフィグに書くと
-  Windows で `.githooks/pre-commit` が常に `M` 表示になり、誤コミットで
-  macOS/Linux のフックが黙って無効化される。
+  macOS/Linux は `true`・Windows は `false` が正しい。特に Windows で
+  `core.fileMode=true` にすると `.githooks/pre-commit` が常に `M` 表示になり、
+  誤コミットで macOS/Linux のフックが黙って無効化される。
 - **モードのみの変更（実行ビット）はコミットしない。**
   フックの `100755` はリポジトリで維持する。`M` が出るときは
   `chmod +x .githooks/pre-commit` で解消する（コミットは不要）。
 - フックもリポジトリの一部として origin を介して配布されるため、
   各機での設定は clone 後の `bootstrap.sh` 実行のみで完結する。
+- **他機の更新が `git status` に出ないときは `git fetch` を実行する。**
+  `git status` の「up to date」はローカルにキャッシュされたリモート追跡参照
+  （`origin/<ブランチ>`）との比較であり、fetch するまでは実際の最新とは限らない。
+  最新の取り込みは `git pull --ff-only` で行う。VS Code を使う場合は設定
+  **`Git: Autofetch`** を有効にすると自動で参照が更新され、この食い違いを防げる
+  （既定は無効。小規模リポジトリでは有効化を推奨）。
 
 ## 7. 関連文書
 
