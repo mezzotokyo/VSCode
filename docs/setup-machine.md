@@ -10,18 +10,20 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 
 | ソフト | 用途 | 備考 |
 |--------|------|------|
-| Python 3.9 以上 | 文字混入検査・テストの実行 | macOS: Xcode CLT ／ Windows: Scoop ／ Linux: ディストリのパッケージ |
+| Python 3.9 以上 | 文字混入検査・テスト・物理コアの実行 | macOS: Xcode CLT ／ Windows: Scoop ／ Linux: ディストリのパッケージ |
+| Node.js 20.19 以上 / 22.12 以上 | `webapp` の開発サーバ・ビルド | Vite 8 の要件。npm 同梱。`webapp` を使わない場合は不要 |
 | Git | リポジトリ操作・フック実行 | フックは POSIX シェル。Windows は Git Bash の `sh` / `bash` で実行 |
 | GitHub CLI (`gh`) | GitHub 認証・リポジトリ操作 | 認証は `gh auth login` 1 回。HTTPS の credential helper を gh が引き受ける |
 
 各 OS の導入手順:
 
 - **macOS**: `xcode-select --install` で `/usr/bin/python3` と `git` が入る。
-  （Homebrew 利用の場合: `brew install python git gh`）
-- **Windows**: `scoop install python git gh`（Scoop `main` バケット）。
+  （Homebrew 利用の場合: `brew install python git gh node`）
+- **Windows**: `scoop install python git gh nodejs`（Scoop `main` バケット）。
   詳細は `docs/setup-windows.md` を参照。
 - **Linux (例: Ubuntu)**: `sudo apt install python3 git` ／ `gh` は
-  [公式手順](https://cli.github.com/) で導入
+  [公式手順](https://cli.github.com/) ／ Node.js は
+  [NodeSource](https://github.com/nodesource/distributions) 等で導入
 
 ### GitHub 認証（初回のみ・マシンごと）
 

@@ -335,17 +335,21 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 - **Python**: 3.9 以上（標準ライブラリのみで動作する）。macOS / Windows 11 の
   Python 3.14 で検証している。Windows は Scoop 構成であり、`python` / `python3` で
   起動できる（`py` は解決されない。詳細は `docs/setup-windows.md` を参照）。
+- **Node.js（`webapp` を使う場合のみ）**: 20.19 以上 / 22.12 以上（Vite 8 の要件）と
+  npm。起動・ビルドは `webapp/README.md` を参照。物理コアのみを使う場合は不要。
 - **テスト**: 8.3 節のコマンドを実行し、89 件すべてがパスすることを確認する。
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`（`0 finding(s)` が正常）。
-- **pre-commit フック**: クローンごとに一度だけ次を実行する。
+- **pre-commit フック**: クローンごとに一度だけ次を実行する（`docs/setup-machine.md` /
+  `docs/setup-windows.md` と共通）。
 
-  ```text
-  git config core.hooksPath .githooks
+  ```sh
+  bash tools/bootstrap.sh .
   ```
 
-  以降、コミット時に `tools/check_text_hygiene.py` が自動実行され、
-  混入文字が 1 件でもあればコミットが拒否される（フック本体は `.githooks/pre-commit`、
-  Windows のセットアップ手順は `docs/setup-windows.md` を参照）。
+  これは `git config core.hooksPath .githooks` を含む。以降、コミット時に
+  `tools/check_text_hygiene.py` が自動実行され、混入文字が 1 件でもあればコミットが
+  拒否される（フック本体は `.githooks/pre-commit`、Windows のセットアップ手順は
+  `docs/setup-windows.md` を参照）。
 
 ---
 
