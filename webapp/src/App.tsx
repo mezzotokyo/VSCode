@@ -69,7 +69,7 @@ export default function App() {
             <input
               type="range"
               min={10}
-              max={400}
+              max={20000}
               step={1}
               value={form.velocity_kmph}
               onChange={(event) =>
@@ -99,7 +99,7 @@ export default function App() {
             <input
               type="number"
               min={0.0001}
-              max={1}
+              max={5}
               step={0.001}
               value={form.dt}
               onChange={(event) => setForm({ ...form, dt: Number(event.target.value) })}
