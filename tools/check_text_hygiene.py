@@ -112,7 +112,9 @@ SIMPLIFIED_ONLY = (
     '飞饭饮马驾验骑鱼鲁鲜鸟鸡齐齿龙获锁规'
 )
 
-SKIP_DIRECTORIES = frozenset({'.git', '__pycache__', '.mypy_cache', '.pytest_cache'})
+SKIP_DIRECTORIES = frozenset(
+    {'.git', '__pycache__', '.mypy_cache', '.pytest_cache', 'node_modules', 'dist'}
+)
 SKIP_SUFFIXES = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.pyc'})
 TEXT_SUFFIXES = frozenset(
     {'.py', '.md', '.json', '.csv', '.txt', '.toml', '.cfg', '.ini', '.yaml', '.yml'}
