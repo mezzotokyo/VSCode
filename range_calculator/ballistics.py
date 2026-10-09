@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 from physics_config import DEFAULT_PARAMETERS, coerce_parameters
 
@@ -131,12 +131,22 @@ class ProjectileSimulator:
         return ideal_range(self.initial_velocity, self.launch_angle_rad, self.gravity)
 
     def run_simulation(
-        self, dt: float | None = None, resume: bool = False
+        self,
+        dt: float | None = None,
+        resume: bool = False,
+        *,
+        on_step: Callable[[float, State], None] | None = None,
     ) -> tuple[float, float]:
         """Integrate until ground impact or the configured time limit.
 
         Returns ``(ground_range, flight_time)``; use :meth:`result` for the
         impact speed and landing flags.
+
+        The optional ``on_step`` callback is invoked as ``on_step(t, state)``
+        with the launch state, each accepted intermediate state, and the final
+        landing state. It is a pure observation hook: it does not influence the
+        integration, so it is safe to use for recording a trajectory. Passing
+        ``None`` (the default) keeps the behaviour identical to before.
 
         The call is idempotent: unless ``resume`` is true the state is reset to
         the launch conditions first, so repeated calls reproduce the same result.
@@ -162,6 +172,8 @@ class ProjectileSimulator:
         else:
             self.reset()
         self.dt = timestep
+        if on_step is not None:
+            on_step(self.t, self.state)
 
         k, gravity, dt = self.k, self.gravity, self.dt
         launch_speed = math.hypot(self.state[2], self.state[3])
@@ -201,10 +213,14 @@ class ProjectileSimulator:
                     self.state, next_state, self.t, h
                 )
                 self.landed = True
+                if on_step is not None:
+                    on_step(self.t, self.state)
                 break
 
             self.state = next_state
             self.t = next_t
+            if on_step is not None:
+                on_step(self.t, self.state)
             if self.t >= self.max_time:
                 self.timed_out = True
                 break
