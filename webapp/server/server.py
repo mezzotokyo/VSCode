@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -53,9 +54,40 @@ PARAMETER_FIELDS = (
 
 MAX_TRAJECTORY_POINTS = 2000
 
+_TOO_COARSE_RE = re.compile(
+    r"timestep dt=(?P<dt>\S+) is too coarse: an upward launch reached the "
+    r"ground within the first step\. Reduce dt below (?P<stable>\S+)\."
+)
+
 
 class BadRequest(ValueError):
     """Raised when the request payload cannot be turned into a scenario."""
+
+
+def localize_error(message: str) -> str:
+    """Translate the physics core's timestep errors into Japanese for the UI.
+
+    The core (:mod:`ballistics`) keeps its messages in English because they are
+    asserted by the unit tests. This adapter is the presentation boundary, so
+    only user-facing timestep failures are rewritten here; anything that does not
+    match a known pattern is returned unchanged.
+    """
+    match = _TOO_COARSE_RE.search(message)
+    if match:
+        return (
+            f"刻み幅 dt={match['dt']} は粗すぎます。上方向への発射が最初のステップで"
+            f"地面に到達しました。dt を {match['stable']} 未満にしてください。"
+        )
+    if "non-finite state" in message:
+        return (
+            "刻み幅 dt が大きすぎて計算が発散しました（非有限値）。"
+            "dt を小さくしてください。"
+        )
+    if "more than" in message and "launch speed" in message:
+        return (
+            "刻み幅 dt が大きすぎて計算速度が発散しました。dt を小さくしてください。"
+        )
+    return message
 
 
 def _number(payload: dict[str, Any], key: str, default: float) -> float:
@@ -201,9 +233,9 @@ class ApiHandler(BaseHTTPRequestHandler):
         except (TypeError, ValueError) as exc:
             # BadRequest is a ValueError subclass, so malformed input and
             # validation failures share the same 400 response.
-            self._send_json(400, {"error": str(exc)})
+            self._send_json(400, {"error": localize_error(str(exc))})
         except SimulationDiverged as exc:
-            self._send_json(422, {"error": str(exc)})
+            self._send_json(422, {"error": localize_error(str(exc))})
 
     def _read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)

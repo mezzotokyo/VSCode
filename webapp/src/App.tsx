@@ -11,8 +11,39 @@ const INITIAL_REQUEST: SimulateRequest = {
   adaptive: false,
 }
 
+const DT_MIN = 0.0001
+const DT_MAX = 10
+
 function format(value: number, digits = 2): string {
   return value.toFixed(digits)
+}
+
+const DECIMAL_FORMAT = new Intl.NumberFormat('en-US', {
+  useGrouping: false,
+  maximumFractionDigits: 20,
+})
+
+function formatDecimal(value: number, significantDigits = 6): string {
+  if (!Number.isFinite(value)) {
+    return String(value)
+  }
+  return DECIMAL_FORMAT.format(Number(value.toPrecision(significantDigits)))
+}
+
+function dtValidityMessage(input: HTMLInputElement): string {
+  if (input.validity.rangeUnderflow) {
+    return `刻み幅 dt は ${DT_MIN} 以上で指定してください。`
+  }
+  if (input.validity.rangeOverflow) {
+    return `刻み幅 dt は ${DT_MAX} 以下で指定してください。`
+  }
+  if (input.validity.stepMismatch) {
+    return `刻み幅 dt は ${DT_MIN} 単位で指定してください。`
+  }
+  if (input.validity.badInput) {
+    return '刻み幅 dt には数値を指定してください。'
+  }
+  return '刻み幅 dt の値を確認してください。'
 }
 
 export default function App() {
@@ -24,6 +55,7 @@ export default function App() {
   const run = useCallback(async (request: SimulateRequest) => {
     setLoading(true)
     setError(null)
+    setData(null)
     try {
       setData(await simulate(request))
     } catch (err) {
@@ -48,6 +80,13 @@ export default function App() {
     result && result.ideal_range > 0
       ? ((result.ideal_range - result.ground_range) / result.ideal_range) * 100
       : 0
+  const requestedDt = data?.input.dt ?? null
+  const shortestStep =
+    result?.timestep_min != null &&
+    requestedDt != null &&
+    result.timestep_min < requestedDt
+      ? result.timestep_min
+      : null
 
   return (
     <main className="app">
@@ -69,7 +108,7 @@ export default function App() {
             <input
               type="range"
               min={10}
-              max={20000}
+              max={500}
               step={1}
               value={form.velocity_kmph}
               onChange={(event) =>
@@ -98,11 +137,20 @@ export default function App() {
             <span>刻み幅 dt (s)</span>
             <input
               type="number"
-              min={0.0001}
-              max={5}
-              step={0.001}
+              min={DT_MIN}
+              max={DT_MAX}
+              step={DT_MIN}
               value={form.dt}
-              onChange={(event) => setForm({ ...form, dt: Number(event.target.value) })}
+              onInvalid={(event) => {
+                event.currentTarget.setCustomValidity(
+                  dtValidityMessage(event.currentTarget),
+                )
+                setData(null)
+              }}
+              onChange={(event) => {
+                event.currentTarget.setCustomValidity('')
+                setForm({ ...form, dt: Number(event.target.value) })
+              }}
             />
           </label>
 
@@ -162,10 +210,10 @@ export default function App() {
                   <dt>積分ステップ数</dt>
                   <dd>{result.steps}</dd>
                 </div>
-                {result.timestep_min !== null && (
+                {shortestStep !== null && (
                   <div>
                     <dt>最短刻み</dt>
-                    <dd>{result.timestep_min.toExponential(3)} s</dd>
+                    <dd>{formatDecimal(shortestStep)} s</dd>
                   </div>
                 )}
                 <div>

@@ -13,12 +13,14 @@ JSON API で構成され、物理計算は既存の `range_calculator`（`ballis
 
 | 項目 | 単位 | 既定値 | 説明 |
 |------|------|--------|------|
-| 初速 | km/h | 170 | スライダー（10–20000） |
+| 初速 | km/h | 170 | スライダー（10–500） |
 | 発射角 | deg | 35 | スライダー（1–89） |
-| 刻み幅 `dt` | s | 0.01 | 数値入力（0.0001–5） |
+| 刻み幅 `dt` | s | 0.01 | 数値入力（0.0001–10、0.0001 単位） |
 | adaptive | — | off | 安定性上限で刻みを自動短縮するモード |
 
-「シミュレーション実行」ボタンで API を呼び出し、結果が更新されます。
+「シミュレーション実行」ボタンで API を呼び出します。実行のたびに Result と軌跡は
+クリアされ、結果が得られた時点で表示されます。エラー時は Result を表示せず、
+日本語のエラーメッセージを表示します。
 
 ### 1.2 出力メトリクス（Result）
 
@@ -28,7 +30,7 @@ JSON API で構成され、物理計算は既存の `range_calculator`（`ballis
 - 飛行時間
 - 着弾速度
 - 積分ステップ数
-- 最短刻み（`adaptive` で短縮された場合のみ表示）
+- 最短刻み（`adaptive` で指定した `dt` より短縮された場合のみ表示。小数で表示）
 - 着弾したかどうか
 
 時間上限（既定 300 s）に達した場合は警告を表示します。
@@ -63,7 +65,11 @@ JSON API で構成され、物理計算は既存の `range_calculator`（`ballis
 
 任意で `parameters` オブジェクト（`max_time`, `gravity`, `air_density`, `mass`,
 `diameter`, `drag_coefficient`）を指定すると物理定数を上書きできます。
-軌跡は最大 2000 点に間引き（間引き）して返します。
+軌跡は最大 2000 点に間引きして返します。
+
+エラー時は HTTP 400（入力値の不正）または 422（計算の発散）と
+`{"error": "<メッセージ>"}` を返します。`error` は日本語で、刻み幅が粗すぎる場合などは
+許容値（例: `dt を 1.24049 未満にしてください`）を含みます。
 
 ---
 
@@ -101,10 +107,10 @@ webapp/
 
 ### 3.1 Windows（Scoop）
 
-未導入なら次で導入します。
+未導入なら次で導入します（`docs/setup-windows.md` と同じ構成。`opencode` は任意）。
 
 ```powershell
-scoop install python nodejs git
+scoop install python git gh nodejs
 ```
 
 Scoop 導入直後の古いシェルでは PATH が未反映の場合があります。新しい PowerShell を
@@ -202,9 +208,12 @@ pkill -f "server/server.py" || true
 
 1. スライダーで **初速** と **発射角** を調整する。
 2. 必要に応じて **刻み幅 dt** を変更、または **adaptive** を有効にする。
-3. 「**シミュレーション実行**」を押す（計算中は `計算中...` 表示）。
-4. **Result** にメトリクス、下段 **Trajectory** に軌跡チャートが表示される。
+3. 「**シミュレーション実行**」を押す。実行時に前回の Result と軌跡はクリアされ、
+   計算中は `計算中...` を表示する。
+4. 結果が得られると **Result** にメトリクス、下段 **Trajectory** に軌跡チャートが
+   表示される。
 5. 条件を変えて再実行すると結果が更新される。初回表示時にも既定値で1回実行されます。
+6. エラー時は Result を表示せず、日本語のエラーメッセージを表示する。
 
 `adaptive` は刻みを安定性上限内に**短縮**する発散防止機構であり、精度向上を保証する
 ものではありません（詳細は `range_calculator/SPEC.md` 第4章）。
@@ -225,7 +234,8 @@ pkill -f "server/server.py" || true
 ### 6.1 テスト
 
 バックエンドが使う物理コアは既存のテストで検証されています（Windows は `python`、
-macOS は `python3`）。
+macOS は `python3`）。次のコマンドは `webapp` ではなく**リポジトリのルート**で
+実行します。
 
 ```sh
 python3 -m unittest discover -s range_calculator -p "test_*.py"
@@ -243,7 +253,7 @@ python3 tools/check_text_hygiene.py
 | `Port 5173 is in use` | 古い Vite が残存。Windows: `Get-Process node \| Stop-Process -Force` / macOS: `pkill -f vite` |
 | `node` / `npm` が見つからない | Scoop 導入後にシェルを開き直す。または §3.1 の PATH 追記を実行（macOS は `brew install node`） |
 | `python: command not found`（macOS） | macOS では `python3` を使う |
-| 画面に `エラー: ...` が出る | 入力値不正、または API 側の検証に失敗。メッセージ内容を確認 |
+| 画面に `エラー: ...` が出る | 入力値不正、または API 側の検証（刻み幅が粗すぎる等）に失敗。日本語メッセージの内容に従い入力を修正する |
 
 ---
 
