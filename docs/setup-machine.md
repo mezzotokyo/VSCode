@@ -27,12 +27,20 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 
 ```sh
 gh auth login --hostname github.com --git-protocol https --web
+gh auth setup-git --hostname github.com
 ```
 
-表示されたコードを https://github.com/login/device に入力して承認する。
-macOS ではコードがクリップボードに入る。以後、`git clone` / `git push` は
-パスワード入力不要（gh が credential helper として働く）。
-トークン失効時は `gh auth refresh` で再認証する。
+`gh auth login` で表示されたコードを https://github.com/login/device に入力して承認する
+（macOS ではコードがクリップボードに入る）。続けて `gh auth setup-git` を実行すると、
+github.com に対する git の credential helper として gh が登録され、トークンは OS の
+資格情報ストア（macOS: キーチェーン / Windows: 資格情報マネージャー）に保存される。
+以後、`git clone` / `git push` / `git pull` はパスワード・対話入力なしで通る。
+
+- **`gh auth setup-git` を省かない。** Scoop の git は Git Credential Manager を
+  システム設定で有効にしているため、未設定だと非対話シェルで `git push` が
+  ブラウザ認証待ちでブロックすることがある。gh 側の host 限定ヘルパーを優先させる。
+- トークン失効時は `gh auth refresh` で再認証する。必要スコープは `repo`。
+- 確認: `gh auth status` が「Logged in」、`git ls-remote origin` が無プロンプトで成功。
 
 ## 2. リポジトリの取得とフック有効化
 
