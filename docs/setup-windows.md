@@ -1,42 +1,59 @@
 # Windows 11 セットアップ手順
 
 native Windows 11（WSL を使わない構成）で本リポジトリを開発するための手順。
-想定構成は **Python Install Manager**（Microsoft Store 版）と **Git for Windows**。
+想定構成は **Scoop**（`main` バケット）で導入した Python・Git for Windows・`gh`。
 macOS と挙動を合わせるため、コマンド例は `python3` 表記で統一している。
 
 ## 1. 必要なソフト
 
+パッケージマネージャーは **Scoop** を使う。Scoop 未導入の場合は、PowerShell で
+まず Scoop 本体を入れる（初回のみ）。
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```
+
+`Set-ExecutionPolicy` は、スクリプト実行が制限された既定環境（`Restricted`）でも
+インストーラを動かせるようにするため。`-Scope CurrentUser` なので管理者権限は不要。
+Scoop は既定で `~\scoop` に導入され、`~\scoop\shims` が PATH に追加される。
+
+続けて、目的のツールをまとめて導入する。
+
+```powershell
+scoop install python git gh opencode
+```
+
 | ソフト | 用途 | 備考 |
 |--------|------|------|
-| Python 3.9 以上 | 本体・テストの実行 | Python 3.14 で検証済み。Python Install Manager 槙成なら `python3` / `python` / `py` のどれでも起動できる |
-| Git for Windows | リポジトリ操作・フック実行 | フックは POSIX シェルで書かれているが、Git for Windows は `sh` を同梱しているためそのまま動く |
-| GitHub CLI (`gh`) | GitHub 認証 | `winget install GitHub.cli`。初回のみ `gh auth login --hostname github.com --git-protocol https --web` |
+| Python 3.9 以上 | 本体・テストの実行 | Scoop `main` バケット。3.14 で検証済み。`python` / `python3` で起動できる（`py` は Scoop 構成では解決されない。§2 参照） |
+| Git for Windows | リポジトリ操作・フック実行 | Scoop `main` バケット。フックは POSIX シェルで書かれているが、Git for Windows は `sh` を同梱しているためそのまま動く |
+| GitHub CLI (`gh`) | GitHub 認証 | Scoop `main` バケット。初回のみ `gh auth login --hostname github.com --git-protocol https --web` |
+| opencode | 開発支援 CLI | Scoop `main` バケット。必須ではない |
 
-Python が未導入の場合は Microsoft Store で「Python Software Foundation」提供の
-パッケージをインストールする（有償の表示が出ている場合は選択を間違えている）。
+Scoop は導入した実行ファイルを `~\scoop\shims` にシムとして置き、このディレクトリを
+PATH に通す。`scoop install` 直後に「コマンドが見つからない」と出る場合は、
+**新しい PowerShell を開く**か、次のように現在のシェルへ PATH を反映する:
+
+```powershell
+$env:Path += ";$env:USERPROFILE\scoop\shims"
+gh --version
+```
+
+導入済みの一覧と解決先の確認:
+
+```powershell
+scoop list
+scoop which gh
+```
 
 `gh` は認証時にブラウザが開くため、表示されたコードを
 https://github.com/login/device に入力して承認する（Windows ではコードは
 クリップボードに入らないので控える）。以降の `git clone` / `git push` は
 パスワード入力不要（gh が credential helper として働く）。
 
-`gh` が「コマンドが見つからない」と出る場合、インストーラが更新した PATH を
-開いているシェルがまだ読み込んでいないのが原因。**新しい PowerShell を開く**。
-それでも無ければ PATH をその場で補完して確認する:
-
-```powershell
-$env:Path += ";$env:LocalAppData\Programs\GitHub CLI"
-gh --version
-```
-
-常時入るよう永続化する（1回だけ）:
-
-```powershell
-[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$env:LocalAppData\Programs\GitHub CLI", "User")
-```
-
-`where.exe gh` が何も返さない場合はインストール自体が失敗しているので
-`winget install GitHub.cli` を再実行する。
+認証は **リポジトリを clone する前に**済ませること。private リポジトリを未認証で
+`git clone` すると失敗し、空のディレクトリだけが残ることがある。
 
 ## 2. Python の確認
 
@@ -45,25 +62,34 @@ PowerShell で次を実行する。
 ```powershell
 python --version
 python3 --version
-py --version
 ```
 
-すべて同じバージョン（例: `Python 3.14.8`）が返れば準備完了。
+Scoop の `python` パッケージは `python.exe` と `python3` シムの両方を用意するため、
+`python` / `python3` が同じバージョン（例: `Python 3.14.8`）を返せば準備完了。
+
+`py --version` は **Scoop 構成では `No installed Python found!` になる**。
+Scoop 版はレジストリ登録せずに動くため、Microsoft Store 版や python.org 版と違い
+`py` ランチャーからは解決されない。本リポジトリの手順は `python3` 表記なので
+そのまま進めてよい。
 
 解決先のパスを知りたい場合は次のいずれかを使う。**`where python` は使わない**
 （PowerShell の `where` は `Where-Object` のエイリアスであり、何も返さない）。
 
 ```powershell
 (Get-Command python).Source
-where.exe python
+scoop which python
 ```
 
 構成の目安:
 
-- `python` / `python3` / `py` の3つがすべて動く → Python Install Manager（推奨構成）
-- パスが `%LocalAppData%\Microsoft\WindowsApps` を指す → ストア経由の解決
+- 解決先が `~\scoop\apps\python\current\python.exe` を指す → Scoop 構成（本ドキュメントの前提）
+- 解決先が `%LocalAppData%\Microsoft\WindowsApps` を指す → Microsoft Store 版
 
 ## 3. リポジトリの取得と検証
+
+**先に §1 の `gh auth login` を済ませること。** 認証前に private リポジトリを
+`git clone` すると失敗し、空のディレクトリだけが残る。clone の宛先には既存の
+空ディレクトリや別のリポジトリを指定しない（ネストの原因になる。§5 参照）。
 
 ```powershell
 git clone <リポジトリのURL>
@@ -109,8 +135,8 @@ OS 既定値のままにする**（macOS は `true`・Windows は `false` で、
 - **改行コードは LF で固定されている**（リポジトリルートの `.gitattributes`）。
   `core.autocrlf` の設定に関わらず作業ツリーは LF のまま保たれる。
 - **バージョン要件は Python 3.9 以上。** 現在は 3.14 で検証している。
-- Store 版 Python は自動更新される。更新後にテストが落ちた場合は
-  `python --version` でバージョン差分を確認する。
+- Scoop 版ツールは `scoop update`（個別なら `scoop update python`）で更新する。
+  更新後にテストが落ちた場合は `python --version` でバージョン差分を確認する。
 - **リポジトリの中では `git clone` を実行しない。** 本リポジトリは
   iCloud Drive（Desktop & Documents 同期）で機体間共有されており、
   リポジトリ内に `git clone` すると同じリポジトリが `src/` としてネストされる。

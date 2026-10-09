@@ -10,7 +10,7 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 
 | ソフト | 用途 | 備考 |
 |--------|------|------|
-| Python 3.9 以上 | 文字混入検査・テストの実行 | macOS: Xcode CLT ／ Windows: Python Install Manager ／ Linux: ディストリのパッケージ |
+| Python 3.9 以上 | 文字混入検査・テストの実行 | macOS: Xcode CLT ／ Windows: Scoop ／ Linux: ディストリのパッケージ |
 | Git | リポジトリ操作・フック実行 | フックは POSIX シェル。Windows は Git Bash の `sh` / `bash` で実行 |
 | GitHub CLI (`gh`) | GitHub 認証・リポジトリ操作 | 認証は `gh auth login` 1 回。HTTPS の credential helper を gh が引き受ける |
 
@@ -18,8 +18,8 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 
 - **macOS**: `xcode-select --install` で `/usr/bin/python3` と `git` が入る。
   （Homebrew 利用の場合: `brew install python git gh`）
-- **Windows**: Microsoft Store の「Python Software Foundation」製 Python と Git for Windows。
-  `gh` は `winget install GitHub.cli`。詳細は `docs/setup-windows.md` を参照。
+- **Windows**: `scoop install python git gh`（Scoop `main` バケット）。
+  詳細は `docs/setup-windows.md` を参照。
 - **Linux (例: Ubuntu)**: `sudo apt install python3 git` ／ `gh` は
   [公式手順](https://cli.github.com/) で導入
 
