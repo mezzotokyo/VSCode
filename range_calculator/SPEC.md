@@ -343,7 +343,12 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
   起動できる（`py` は解決されない。詳細は `docs/setup-windows.md` を参照）。
 - **Node.js（`webapp` を使う場合のみ）**: 20.19 以上 / 22.12 以上（Vite 8 の要件）と
   npm。起動・ビルドは `webapp/README.md` を参照。物理コアのみを使う場合は不要。
+- **デスクトップ GUI（`desktop` を使う場合のみ）**: 標準ライブラリの Tkinter のみで
+  動作し、追加の `pip` パッケージは不要（単一実行ファイル化のビルド時のみ PyInstaller
+  を使用）。起動・ビルドは `desktop/README.md` を参照。
 - **テスト**: 8.3 節のコマンドを実行し、89 件すべてがパスすることを確認する。
+  `desktop` のテストは `python3 -m unittest discover -s desktop/tests -p "test_*.py"`
+  で実行する（`webapp` との対応漏れ検出を含む。`desktop/PLAN.md` §9 を参照）。
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`（`0 finding(s)` が正常）。
 - **pre-commit フック**: クローンごとに一度だけ次を実行する（`docs/setup-machine.md` /
   `docs/setup-windows.md` と共通）。
@@ -359,6 +364,8 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 
 ---
 
-*最終更新: §7 の野球ボール実測 `Cd` の値域を、自由飛行 0.33–0.36 と風洞実験での低下
-（例: NPB 0.3 前後）に補正し、球種別 `Cd` を `parameters.drag_coefficient` で指定できる旨
-（Web アプリのプリセット）を明記した（2026-10-10）*
+*最終更新: 第11章にデスクトップ GUI（`desktop/`、Tkinter）の実行時依存が標準
+ライブラリのみである旨と、そのテストコマンドを追記した（2026-10-10）。前回は §7 の
+野球ボール実測 `Cd` の値域を、自由飛行 0.33–0.36 と風洞実験での低下（例: NPB 0.3
+前後）に補正し、球種別 `Cd` を `parameters.drag_coefficient` で指定できる旨（Web
+アプリのプリセット）を明記した*
