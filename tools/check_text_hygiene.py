@@ -117,7 +117,7 @@ SKIP_DIRECTORIES = frozenset(
 )
 SKIP_SUFFIXES = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.pyc'})
 TEXT_SUFFIXES = frozenset(
-    {'.py', '.md', '.json', '.csv', '.txt', '.toml', '.cfg', '.ini', '.yaml', '.yml'}
+    {'.py', '.md', '.json', '.csv', '.txt', '.toml', '.cfg', '.ini', '.yaml', '.yml', '.swift'}
 )
 
 

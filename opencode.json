@@ -18,5 +18,5 @@
       }
     }
   },
-  "model": "lmstudio/gemma4:e4b"
+  "model": "opencode/big-pickle"
 }
