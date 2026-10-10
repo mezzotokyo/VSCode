@@ -36,13 +36,6 @@ METRIC_ROWS = (
 )
 
 
-def _preset_label(value: float) -> str:
-    for preset_value, preset_label in gui_model.DRAG_PRESETS:
-        if preset_value == value:
-            return f"{preset_label}（Cd={preset_value}）"
-    return f"Cd={value}"
-
-
 class RangeCalculatorApp(tk.Tk):
     """The application window."""
 
@@ -60,7 +53,7 @@ class RangeCalculatorApp(tk.Tk):
         self._dt_var = tk.StringVar(value=str(gui_model.DEFAULT_TIMESTEP))
         self._adaptive_var = tk.BooleanVar(value=gui_model.DEFAULT_ADAPTIVE)
         self._cd_var = tk.StringVar(
-            value=_preset_label(gui_model.DRAG_COEFFICIENT_DEFAULT)
+            value=gui_model.preset_label(gui_model.DRAG_COEFFICIENT_DEFAULT)
         )
         self._metric_vars: dict[str, tk.StringVar] = {
             key: tk.StringVar(value="-") for key, _ in METRIC_ROWS
@@ -134,7 +127,7 @@ class RangeCalculatorApp(tk.Tk):
         cd_row.pack(fill="x", pady=(8, 0))
         ttk.Label(cd_row, text="抗力係数 Cd").pack(side="left")
         cd_values = [
-            _preset_label(value) for value, _ in gui_model.DRAG_PRESETS
+            gui_model.preset_label(value) for value, _ in gui_model.DRAG_PRESETS
         ]
         cd_box = ttk.Combobox(
             cd_row,
@@ -247,7 +240,7 @@ class RangeCalculatorApp(tk.Tk):
     def _selected_cd(self) -> float:
         selected = self._cd_var.get()
         for value, _label in gui_model.DRAG_PRESETS:
-            if _preset_label(value) == selected:
+            if gui_model.preset_label(value) == selected:
                 return value
         return gui_model.DRAG_COEFFICIENT_DEFAULT
 

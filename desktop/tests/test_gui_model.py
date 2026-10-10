@@ -26,10 +26,10 @@ class PresetTests(unittest.TestCase):
         )
         self.assertEqual(gui_model.DRAG_PRESETS, expected)
 
-    def test_drag_label_known_and_unknown(self) -> None:
-        self.assertEqual(gui_model.drag_label(0.47), "球体（既定値）")
-        self.assertEqual(gui_model.drag_label(0.3), "NPB")
-        self.assertEqual(gui_model.drag_label(0.5), "Cd=0.5")
+    def test_preset_label_known_and_unknown(self) -> None:
+        self.assertEqual(gui_model.preset_label(0.47), "球体（既定値）（Cd=0.47）")
+        self.assertEqual(gui_model.preset_label(0.3), "NPB（Cd=0.3）")
+        self.assertEqual(gui_model.preset_label(0.5), "Cd=0.5")
 
 
 class ValidateDtTests(unittest.TestCase):

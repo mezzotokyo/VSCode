@@ -100,6 +100,48 @@ class DragPresetAgreementTests(unittest.TestCase):
         self.assertEqual(gui_model.DRAG_PRESETS, self._parse_app_presets())
 
 
+class ConstantAgreementTests(unittest.TestCase):
+    def test_scalar_constants_match(self) -> None:
+        for name in (
+            "KMPH_TO_MPS",
+            "DEFAULT_VELOCITY_KMPH",
+            "DEFAULT_ANGLE_DEG",
+            "DEFAULT_TIMESTEP",
+            "MAX_TRAJECTORY_POINTS",
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(getattr(gui_model, name), getattr(SERVER, name))
+
+    def test_downsample_behaviour_matches(self) -> None:
+        web_points = [{"i": i} for i in range(5000)]
+        app_points = [
+            gui_model.TrajectoryPoint(float(i), 0.0, 0.0, 0.0, 0.0, 0.0)
+            for i in range(5000)
+        ]
+        web_sampled = SERVER._downsample(web_points, SERVER.MAX_TRAJECTORY_POINTS)
+        app_sampled = gui_model._downsample(
+            app_points, gui_model.MAX_TRAJECTORY_POINTS
+        )
+        self.assertEqual(len(web_sampled), len(app_sampled))
+        self.assertIs(web_sampled[-1], web_points[-1])
+        self.assertIs(app_sampled[-1], app_points[-1])
+
+    def test_downsample_keeps_short_lists(self) -> None:
+        web_points = [{"i": i} for i in range(10)]
+        app_points = [
+            gui_model.TrajectoryPoint(float(i), 0.0, 0.0, 0.0, 0.0, 0.0)
+            for i in range(10)
+        ]
+        self.assertEqual(
+            SERVER._downsample(web_points, SERVER.MAX_TRAJECTORY_POINTS),
+            web_points,
+        )
+        self.assertEqual(
+            gui_model._downsample(app_points, gui_model.MAX_TRAJECTORY_POINTS),
+            app_points,
+        )
+
+
 class SimulateAgreementTests(unittest.TestCase):
     def test_reference_scenario_metrics_match(self) -> None:
         conditions = gui_model.LaunchConditions()

@@ -16,7 +16,6 @@ import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RANGE_CALCULATOR = REPO_ROOT / "range_calculator"
@@ -107,11 +106,15 @@ class SimulationOutcome:
         return (ideal - self.result.ground_range) / ideal * 100.0
 
 
-def drag_label(value: float) -> str:
-    """Human-readable label for a drag coefficient, matching the web UI."""
-    for preset_value, preset_label in DRAG_PRESETS:
+def preset_label(value: float) -> str:
+    """Dropdown label for a drag coefficient, matching the web UI.
+
+    Known presets render as ``<label>（Cd=<value>）``; unknown values fall back
+    to ``Cd=<value>``.
+    """
+    for preset_value, preset in DRAG_PRESETS:
         if math.isclose(preset_value, value, rel_tol=0.0, abs_tol=1e-12):
-            return preset_label
+            return f"{preset}（Cd={preset_value:g}）"
     return f"Cd={value:g}"
 
 
@@ -127,7 +130,7 @@ def validate_dt(text: str) -> str | None:
         return "刻み幅 dt には数値を指定してください。"
     if not math.isfinite(value):
         return "刻み幅 dt には数値を指定してください。"
-    if value < DT_MIN - _step_epsilon():
+    if value < DT_MIN:
         return f"刻み幅 dt は {DT_MIN} 以上で指定してください。"
     if value > DT_MAX:
         return f"刻み幅 dt は {DT_MAX} 以下で指定してください。"
@@ -135,10 +138,6 @@ def validate_dt(text: str) -> str | None:
     if not math.isclose(steps, round(steps), rel_tol=0.0, abs_tol=1e-6):
         return f"刻み幅 dt は {DT_MIN} 単位で指定してください。"
     return None
-
-
-def _step_epsilon() -> float:
-    return DT_MIN * 1e-6
 
 
 def simulate(conditions: LaunchConditions) -> SimulationOutcome:
@@ -213,23 +212,6 @@ def format_decimal(value: float, significant_digits: int = 6) -> str:
     return f"{float(f'{value:.{significant_digits}g}'):g}"
 
 
-def as_dict(outcome: SimulationOutcome) -> dict[str, Any]:
-    """Render an outcome in the web API's JSON-like structure (for parity tests)."""
-    return {
-        "result": {
-            "ideal_range": outcome.result.ideal_range,
-            "ground_range": outcome.result.ground_range,
-            "flight_time": outcome.result.flight_time,
-            "impact_speed": outcome.result.impact_speed,
-            "landed": outcome.result.landed,
-            "timed_out": outcome.result.timed_out,
-            "steps": outcome.result.steps,
-            "timestep_min": outcome.result.timestep_min,
-            "timestep_max": outcome.result.timestep_max,
-        },
-    }
-
-
 __all__ = [
     "ANGLE_MAX",
     "ANGLE_MIN",
@@ -248,10 +230,9 @@ __all__ = [
     "TrajectoryPoint",
     "VELOCITY_MAX",
     "VELOCITY_MIN",
-    "as_dict",
-    "drag_label",
     "format_decimal",
     "format_number",
+    "preset_label",
     "simulate",
     "validate_dt",
 ]
