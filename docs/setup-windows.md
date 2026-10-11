@@ -19,15 +19,16 @@ Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 インストーラを動かせるようにするため。`-Scope CurrentUser` なので管理者権限は不要。
 Scoop は既定で `~\scoop` に導入され、`~\scoop\shims` が PATH に追加される。
 
-続けて、目的のツールをまとめて導入する。
+続けて、目的のツールをまとめて導入する。`git` は Scoop がバケット操作に使うため、
+先頭に指定する（後ろに置くといちいち git の導入を求められる）。
 
 ```powershell
-scoop install python git gh opencode nodejs
+scoop install git python gh opencode nodejs
 ```
 
 | ソフト | 用途 | 備考 |
 |--------|------|------|
-| Python 3.9 以上 | 本体・テストの実行 | Scoop `main` バケット。3.14 で検証済み。`python` / `python3` で起動できる（`py` は Scoop 構成では解決されない。§2 参照） |
+| Python 3.9 以上 | 本体・テストの実行 | Scoop `main` バケット。3.15 で検証済み。`python` / `python3` で起動できる（`py` は Scoop 構成では解決されない。§2 参照） |
 | Node.js 20.19 以上 / 22.12 以上 | `webapp` の開発サーバ・ビルド | Scoop `main` バケット（`nodejs`）。Vite 8 の要件。npm 同梱。`webapp` を使わない場合は不要 |
 | Git for Windows | リポジトリ操作・フック実行 | Scoop `main` バケット。フックは POSIX シェルで書かれているが、Git for Windows は `sh` を同梱しているためそのまま動く |
 | GitHub CLI (`gh`) | GitHub 認証 | Scoop `main` バケット。初回のみ `gh auth login --hostname github.com --git-protocol https --web` |
@@ -67,7 +68,7 @@ python3 --version
 ```
 
 Scoop の `python` パッケージは `python.exe` と `python3` シムの両方を用意するため、
-`python` / `python3` が同じバージョン（例: `Python 3.14.8`）を返せば準備完了。
+`python` / `python3` が同じバージョン（例: `Python 3.15.0`）を返せば準備完了。
 
 `py --version` は **Scoop 構成では `No installed Python found!` になる**。
 Scoop 版はレジストリ登録せずに動くため、Microsoft Store 版や python.org 版と違い
@@ -125,18 +126,21 @@ python3 range_calculator/range_calc.py
 
 ## 4. pre-commit フックの有効化
 
-クローンごとに一度だけ、リポジトリルートで次を実行する（`docs/setup-machine.md` と
-共通の手順）。
-
-```sh
-bash tools/bootstrap.sh .
-```
-
-これは `git config core.hooksPath .githooks` を含め、フックに必要な設定を冪等に
-行う。コマンドを個別に実行したい場合のみ、次でも等価。
+クローンごとに一度だけ、リポジトリルートで次を実行する。ネイティブ Windows では
+`bash` / `sh` を別途導入する必要はなく、PowerShell だけで完結する。
 
 ```powershell
 git config core.hooksPath .githooks
+```
+
+フック本体（`.githooks/pre-commit`）や検査スクリプトはリポジトリに含まれているため、
+コピーも実行ビットの設定も不要（Windows は実行ビットを表現しない）。他 OS で使う
+`tools/bootstrap.sh` はこれら雛形の配置まで行うが、クローン済みなら上記 1 コマンドで
+等価（`docs/setup-machine.md` の手順に相当）。設定を確認する場合:
+
+```powershell
+git config core.hooksPath
+Test-Path .githooks\pre-commit
 ```
 
 以降、コミットのたびに文字混入検査が自動実行され、混入文字が 1 件でもあれば
@@ -156,7 +160,7 @@ OS 既定値のままにする**（macOS/Linux は `true`・Windows は `false` 
   編集はテキストエディタで行い、エンコーディングは UTF-8 のままとする。
 - **改行コードは LF で固定されている**（リポジトリルートの `.gitattributes`）。
   `core.autocrlf` の設定に関わらず作業ツリーは LF のまま保たれる。
-- **バージョン要件は Python 3.9 以上。** 現在は 3.14 で検証している。
+- **バージョン要件は Python 3.9 以上。** 現在は 3.15 で検証している。
 - **`webapp` を使う場合は Node.js 20.19 以上 / 22.12 以上**（Vite 8 の要件）。
   検証は §2.1 を参照。
 - Scoop 版ツールは `scoop update`（個別なら `scoop update python` / `scoop update nodejs`）

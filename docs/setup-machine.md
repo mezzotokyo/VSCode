@@ -19,7 +19,7 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 
 - **macOS**: `xcode-select --install` で `/usr/bin/python3` と `git` が入る。
   （Homebrew 利用の場合: `brew install python git gh node`）
-- **Windows**: `scoop install python git gh nodejs`（Scoop `main` バケット）。
+- **Windows**: `scoop install git python gh nodejs`（Scoop `main` バケット）。
   詳細は `docs/setup-windows.md` を参照。
 - **Linux (例: Ubuntu)**: `sudo apt install python3 git` ／ `gh` は
   [公式手順](https://cli.github.com/) ／ Node.js は

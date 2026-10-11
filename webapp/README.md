@@ -126,7 +126,7 @@ webapp/
 未導入なら次で導入します（`docs/setup-windows.md` と同じ構成。`opencode` は任意）。
 
 ```powershell
-scoop install python git gh nodejs
+scoop install git python gh nodejs
 ```
 
 Scoop 導入直後の古いシェルでは PATH が未反映の場合があります。新しい PowerShell を

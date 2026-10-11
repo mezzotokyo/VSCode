@@ -339,7 +339,7 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 ## 11. 開発環境と検証手順
 
 - **Python**: 3.9 以上（標準ライブラリのみで動作する）。macOS / Windows 11 の
-  Python 3.14 で検証している。Windows は Scoop 構成であり、`python` / `python3` で
+  Python 3.15 で検証している。Windows は Scoop 構成であり、`python` / `python3` で
   起動できる（`py` は解決されない。詳細は `docs/setup-windows.md` を参照）。
 - **Node.js（`webapp` を使う場合のみ）**: 20.19 以上 / 22.12 以上（Vite 8 の要件）と
   npm。起動・ビルドは `webapp/README.md` を参照。物理コアのみを使う場合は不要。

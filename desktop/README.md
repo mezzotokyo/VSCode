@@ -17,7 +17,7 @@
 ## 1. 前提環境
 
 - **Python 3.9 以上**（Windows: `python` / `python3`、macOS: `python3`）
-- Tkinter（Python 同梱。Scoop の Python 3.14 / python.org 版で動作確認）
+- Tkinter（Python 同梱。Scoop の Python 3.15 / python.org 版で動作確認）
   - Tk のバージョン確認: `python3 -c "import tkinter; print(tkinter.TkVersion)"`
 
 追加の `pip` パッケージは不要です。
