@@ -8,11 +8,11 @@
         "baseURL": "http://192.168.20.34:1234/v1"
       },
       "models": {
-        "gemma4:e4b": {
+        "google/gemma-4-e4b": {
           "name": "Gemma 4 E4B (LM Studio)",
           "limit": {
-            "context": 65536,
-            "output": 4096
+            "context": 131072,
+            "output": 8192
           }
         }
       }
