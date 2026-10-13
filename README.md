@@ -39,7 +39,7 @@
 | `range_calculator/` | 物理コア。全形態がこれを再利用する | `SPEC.md` |
 | `webapp/` | ブラウザで操作・可視化する Web アプリ | `webapp/README.md` |
 | `desktop/` | ブラウザ不要のネイティブ GUI アプリ | `desktop/README.md` |
-| `docs/` | 環境構築・セットアップ手順 | 下記 [`§7 ドキュメント`](#7-ドキュメント) |
+| `docs/` | 環境構築・セットアップ手順 | 下記 [`§6 ドキュメント`](#6-ドキュメント) |
 | `tools/` | 文字混入検査・pre-commit フック設定 | — |
 | `opencode.json` | AI 開発支援 CLI（opencode）のプロバイダ設定 | `docs/setup-ollama-server.md` |
 
@@ -134,46 +134,15 @@ git add . && git commit -m "init" && git push -u origin main
 
 opencode のプロバイダ定義（Ollama）はグローバル設定
 （`~/.config/opencode/opencode.json`）に置かれているため、新リポジトリ側に
-`opencode.json` を用意する必要はありません。複数リポジトリを VS Code で同時に
-開く場合は、`~/Dev/` 直下のマルチルートワークスペース（「3. マルチルート
-ワークスペース」参照）を利用します。
+`opencode.json` を用意する必要はありません。
 
 ---
 
-## 3. マルチルートワークスペース
-
-複数のリポジトリを VS Code の一つのウィンドウで開く場合、`.code-workspace`
-（マルチルートワークスペース）を使います。単一フォルダを開く「未設定
-（ワークスペース）」表示とは異なり、名前・複数フォルダ・設定を一元管理できます。
-
-`~/Dev/` 直下に `Dev.code-workspace` がある場合の例:
-
-```text
-~/Dev/
-├── VSCode/            # 本リポジトリ
-├── Xcode/             # 別プロジェクト
-└── Dev.code-workspace # マルチルートワークスペース
-```
-
-```json
-{
-  "folders": [
-    { "path": "VSCode" },
-    { "path": "Xcode" }
-  ],
-  "name": "開発ワークスペース"
-}
-```
-
-- `folders.path` は `.code-workspace` からの相対パス
-- `name` でエクスプローラーに表示される名前を指定
-- VS Code で「ファイル > ワークスペースを開く」から選択して開く
-
-## 4. 物理モデル概要
+## 3. 物理モデル概要
 
 `range_calculator/SPEC.md` の要点です。
 
-### 4.1 基礎方程式
+### 3.1 基礎方程式
 
 質量で割った加速度形式の 4 元状態 `(x, y, vx, vy)` を陽的 4 次ルンゲ–クッタ（RK4）で
 積分します。
@@ -196,7 +165,7 @@ dvy/dt = -k · vy · |v| - g
 | `d` | 弾丸直径 | 0.075 m |
 | `k` | 抗力係数 `= 0.5·ρ·A·Cd / m` | 8.535522e-03 m⁻¹ |
 
-### 4.2 数値解法
+### 3.2 数値解法
 
 - **固定刻みモード**: `dt`（既定 0.01 s）固定。局所誤差 `O(dt⁵)`
 - **適応刻みモード（`adaptive=True`）**: 安定性上限 `dt_max = 0.5 / (k·|v|)` を
@@ -204,7 +173,7 @@ dvy/dt = -k · vy · |v| - g
 - 地面衝突（`y = 0`）はステップ内を**線形補間**して確定
 - 発散検出・時間上限（既定 300 s）・初心者向けの数値ガードあり
 
-### 4.3 基準シナリオ（`170 km/h`, `35°`, `dt=0.01`）
+### 3.3 基準シナリオ（`170 km/h`, `35°`, `dt=0.01`）
 
 | 指標 | 値 |
 |------|-----|
@@ -215,9 +184,9 @@ dvy/dt = -k · vy · |v| - g
 
 ---
 
-## 5. 利用形態
+## 4. 利用形態
 
-### 5.1 CLI（`range_calculator/range_calc.py`）
+### 4.1 CLI（`range_calculator/range_calc.py`）
 
 ```sh
 python3 range_calculator/range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angle=<deg>]
@@ -228,7 +197,7 @@ python3 range_calculator/range_calc.py                      # 既定シナリオ
 python3 range_calculator/range_calc.py data.csv 0.01 --adaptive --v0=170 --angle=35
 ```
 
-### 5.2 Web アプリ（`webapp/`）
+### 4.2 Web アプリ（`webapp/`）
 
 Vite + React + TypeScript のフロントと、Python 標準ライブラリのみの JSON API
 （`stdlib`）で構成。物理計算はコアを再利用します。
@@ -244,7 +213,7 @@ cd webapp && npm run dev
 
 詳細: `webapp/README.md`
 
-### 5.3 デスクトップ GUI（`desktop/`）
+### 4.3 デスクトップ GUI（`desktop/`）
 
 Python 標準ライブラリの Tkinter（ttk）によるネイティブ GUI。追加の `pip`
 パッケージなしで動作し、PyInstaller で単一実行ファイルをビルドできます。
@@ -257,7 +226,7 @@ python3 desktop/app.py
 
 ---
 
-## 6. 検証・品質
+## 5. 検証・品質
 
 - **物理コアのテスト**: 89 件（`test_range_calc.py` 54 件 + `test_adaptive_timestep.py` 35 件）
   - 解析解（`k=0`）との一致 / 収束性 / 着弾状態 / 回帰 / パラメータ検証 /
@@ -277,7 +246,7 @@ python3 tools/check_text_hygiene.py
 
 ---
 
-## 7. ドキュメント
+## 6. ドキュメント
 
 | ドキュメント | 内容 |
 |--------------|------|
@@ -292,6 +261,6 @@ python3 tools/check_text_hygiene.py
 
 ---
 
-## 8. ライセンス
+## 7. ライセンス
 
 記載なし（プライベートリポジトリ）。詳細はリポジトリ管理者に確認してください。
