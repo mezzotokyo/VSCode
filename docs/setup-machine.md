@@ -126,4 +126,5 @@ git push -u origin <ブランチ名>
 ## 7. 関連文書
 
 - Windows 固有のセットアップ: `docs/setup-windows.md`
+- Ollama 推論サーバー構築（macOS / Windows）: `docs/setup-ollama-server.md`
 - 文字混入検査の仕様・ルール: `tools/check_text_hygiene.py` の docstring と `--list-rules`

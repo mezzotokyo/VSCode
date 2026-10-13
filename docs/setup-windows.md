@@ -176,4 +176,5 @@ OS 既定値のままにする**（macOS/Linux は `true`・Windows は `false` 
 - 物理モデル・テスト仕様: `range_calculator/SPEC.md`（第11章に開発環境と検証手順）
 - Web アプリの起動（Node.js の要件・PATH を含む）: `webapp/README.md`
 - デスクトップ GUI の起動・ビルド（Tkinter。追加の実行時依存なし）: `desktop/README.md`
+- Ollama 推論サーバー構築（macOS / Windows）: `docs/setup-ollama-server.md`
 - 変更履歴: `range_calculator/HISTORY.md`
