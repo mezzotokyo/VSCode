@@ -19,6 +19,13 @@ OpenAI 互換 API（`<サーバーIP>:11434/v1`）で接続するための手順
 Ollama は既定で `127.0.0.1:11434` にしかバインドしないため、**LAN からの接続には
 `OLLAMA_HOST` の変更が必須**である。OS 別の設定方法は次章以降。
 
+> 既定の Ollama は**ログイン中のユーザーセッション**で動作し、そのユーザーが
+> ログアウトすると停止する。開発クライアントからいつでも接続できる常設サーバーに
+> する（ログアウト・再起動後も稼働させる）場合は、各 OS の「常駐化」を実施する。
+>
+> - macOS: [§3.4 ログアウト後も稼働させる](#34-ログアウト後も稼働させる常駐化)
+> - Windows: [§4.5 ログアウト後も稼働させる](#45-ログアウト後も稼働させる常駐化)
+
 ## 2. 共通: モデルの準備
 
 ベースモデルは **Ollama のモデルライブラリ**（`https://ollama.com/library`）から
@@ -86,6 +93,94 @@ curl http://<サーバーIP>:11434/api/version
 > なる。信頼できる LAN でのみ行い、不要なら macOS のファイアウォール
 > （システム設定 → ネットワーク → ファイアウォール）で 11434 を制限する。
 
+### 3.4 ログアウト後も稼働させる（常駐化）
+
+3.1〜3.3 は**ログイン中のユーザーセッション**で Ollama を動かす構成であり、
+ログアウトすると停止する。開発クライアントからいつでも接続できる常設サーバーに
+するには、ユーザーのメニューバーアプリではなく、**システム領域の LaunchDaemon**
+として登録する。
+
+1. メニューバーの Ollama を **Quit** して停止する（同じ 11434 番ポートの競合を防ぐ）。
+   `~/Library/LaunchAgents/com.ollama.ollama.plist` が存在する場合は無効化しておく
+   （`launchctl bootout gui/$(id -u)/com.ollama.ollama`）。
+
+2. `/Library/LaunchDaemons/com.ollama.server.plist` を次の内容で作成する。
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ollama.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/Ollama.app/Contents/Resources/ollama</string>
+    <string>serve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OLLAMA_HOST</key>
+    <string>0.0.0.0:11434</string>
+    <key>OLLAMA_MODELS</key>
+    <string>/Users/Shared/ollama/models</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/var/log/ollama.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/ollama.err.log</string>
+</dict>
+</plist>
+```
+
+> `launchctl setenv`（3.2）で設定した環境変数は LaunchDaemon には引き継がれない。
+> `OLLAMA_HOST` は plist の `EnvironmentVariables` に直接書く。デーモンは root として
+> 動くためモデルの既定パスが変わる。`OLLAMA_MODELS` で格納先を明示し、既存モデルを
+> そのパスへ移すか、改めて `ollama pull` する。
+
+3. 所有者と権限を設定する（launchd は group/other が書き込み可能な plist を拒否する）。
+
+```sh
+sudo chown root:wheel /Library/LaunchDaemons/com.ollama.server.plist
+sudo chmod 644 /Library/LaunchDaemons/com.ollama.server.plist
+```
+
+4. ロードして起動する。
+
+```sh
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.ollama.server.plist
+```
+
+5. 状態を確認する。
+
+```sh
+sudo launchctl print system/com.ollama.server | head -n 20
+curl http://<サーバーIP>:11434/api/version
+```
+
+**ログアウト／再起動後**に、クライアントから
+`curl http://<サーバーIP>:11434/api/version` が返れば常駐化は成功。
+
+停止・解除する場合:
+
+```sh
+sudo launchctl bootout system /Library/LaunchDaemons/com.ollama.server.plist
+sudo rm /Library/LaunchDaemons/com.ollama.server.plist
+```
+
+Homebrew 版の Ollama を使う場合は、`sudo brew services start ollama` がシステム領域の
+LaunchDaemon として登録する。ただし既定の環境変数に `OLLAMA_HOST` は含まれないため、
+上記のように plist を直接作成する方が確実である。Homebrew 未導入の場合は、先に次で
+導入する（初回のみ）。
+
+```sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
 ## 4. Windows での構築
 
 ### 4.1 インストール
@@ -115,7 +210,7 @@ ollama serve
 ### 4.3 ファイアウォールの許可
 
 初回起動時の Windows ファイアウォールのダイアログで **プライベートネットワークに
-対して許可** を選ぶ。逃した場合は以下で許可する。
+対して許可** を選ぶ。逃した場合は、**管理者権限の PowerShell** で次を実行して許可する。
 
 ```powershell
 New-NetFirewallRule -DisplayName "Ollama LAN" -Direction Inbound -LocalPort 11434 -Protocol TCP -Action Allow
@@ -125,8 +220,79 @@ New-NetFirewallRule -DisplayName "Ollama LAN" -Direction Inbound -LocalPort 1143
 
 ```powershell
 ipconfig
-curl http://<サーバーIP>:11434/api/version
+curl.exe http://<サーバーIP>:11434/api/version
 ```
+
+> Windows 11 には `curl.exe` が標準搭載されているが、**Windows PowerShell 5.1 では
+> `curl` が `Invoke-WebRequest` のエイリアス**として予約されている。`curl` のままだと
+> 引数の解釈が異なり意図どおりに動かないことがあるため、上の例のように `curl.exe` と
+> 明示するか、`Invoke-RestMethod http://<サーバーIP>:11434/api/version` を使う。
+> 以降の `curl` の例（§4.5、§5）も同様に読み替える。
+
+### 4.5 ログアウト後も稼働させる（常駐化）
+
+4.1〜4.4 は**ログイン中のユーザーセッション**で Ollama を動かす構成であり、
+ログオフすると停止する。開発クライアントからいつでも接続できる常設サーバーに
+するには、ログオンに依存しない **Windows サービス**として登録する。
+
+> 先にトレイ常駐の Ollama を **Quit** し、スタートアップからの自動起動を無効に
+> しておく（同じ 11434 番ポートの競合を防ぐ）。
+
+常駐化には、任意の実行ファイルを Windows サービスとして登録できる
+**NSSM**（Non-Sucking Service Manager）を使う。NSSM はパッケージマネージャーの
+**Scoop** で導入する。以下はサーバーマシン上での操作である。
+
+1. Scoop 未導入の場合は、通常のユーザー権限の PowerShell で Scoop 本体を導入する
+   （初回のみ）。
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```
+
+> `Set-ExecutionPolicy` は、スクリプト実行が制限された既定環境（`Restricted`）でも
+> インストーラを動かすため。`-Scope CurrentUser` なので管理者権限は不要。Scoop は
+> 既定で `~\scoop` に導入され、`~\scoop\shims` が PATH に追加される。`scoop install`
+> 直後に「コマンドが見つからない」と出る場合は、新しい PowerShell を開くか、次で
+> 現在のシェルへ PATH を反映する。
+
+```powershell
+$env:Path += ";$env:USERPROFILE\scoop\shims"
+```
+
+2. Scoop が使えるようになったら、管理者権限の PowerShell で NSSM を導入し、
+   `ollama.exe serve` をサービスとして登録する。
+
+```powershell
+scoop install nssm
+nssm install Ollama "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" serve
+nssm set Ollama AppEnvironmentExtra OLLAMA_HOST=0.0.0.0:11434 OLLAMA_MODELS=C:\ProgramData\Ollama\models
+nssm set Ollama Start SERVICE_AUTO_START
+nssm start Ollama
+```
+
+> `nssm install` の実行ファイルは実際のインストール先に合わせる。トレイ UI の
+> `ollama app.exe` ではなく `ollama.exe serve` を使う。サービスはローカルシステム
+> アカウントで動くためモデルの既定パスが変わる。`OLLAMA_MODELS` を
+> `AppEnvironmentExtra` で明示し、既存モデルをそのパスへ移すか、改めて
+> `ollama pull` する。
+
+状態と再起動後の確認:
+
+```powershell
+Get-Service Ollama
+curl.exe http://<サーバーIP>:11434/api/version
+```
+
+停止・解除する場合:
+
+```powershell
+nssm stop Ollama
+nssm remove Ollama confirm
+```
+
+**ログオフ／再起動後**（サインインしなくても）、クライアントから
+`curl.exe http://<サーバーIP>:11434/api/version` が返れば常駐化は成功。
 
 ## 5. クライアント側（opencode）の設定
 
@@ -176,6 +342,9 @@ curl http://<サーバーIP>:11434/v1/models
 ```
 
 モデル一覧が JSON で返れば接続成功。
+
+> クライアントが Windows の場合、`curl` は先の注意（§4.4）に従い `curl.exe` または
+> `Invoke-RestMethod` に読み替える。
 
 ## 6. 切り替え・モデル評価
 
