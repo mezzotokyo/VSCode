@@ -1,8 +1,10 @@
-# ローカルLLM環境構築と弾道シミュレーション
+# LLM支援と弾道シミュレーションの統合プロジェクト案内
 
-ローカル LLM 推論サーバー（Ollama）を構築して opencode から利用する手順と、
-弾道シミュレーション（range_calc）の物理計算コアと 3 つの利用形態
-（CLI / Web / デスクトップ GUI）からなるプロジェクトです。
+このリポジトリは、ローカル LLM 推論サーバー（Ollama）を opencode から利用する開発支援と、
+物理モデルの弾道シミュレーション（range_calc）を統合したプロジェクトです。
+
+- **シミュレーションコア**: `range_calculator/` 内に配置。物理計算に特化し、他の言語への依存を極力排除しています。
+- **開発サポート**: opencode を介して LLM と連携し、開発を支援します。
 
 等質・球形の弾丸を水平面に対して角度 θ、初速 `v0` で発射したとき、速度の 2 乗に
 比例する空気抵抗（抗力）を考慮して**地面衝突までの距離と飛行時間**を数値積分で求めます。
@@ -11,37 +13,23 @@
 > データとの絶対一致や競技規則的精度を要求する用途には用いません
 > （適用限界は `range_calculator/SPEC.md` 第7章に詳細）。
 
+各機能の詳細は、それぞれのドキュメント（§6）を参照してください。
+
 ---
 
-## 1. リポジトリ構成
+## 1. プロジェクト構成
 
-```text
-.
-├── range_calculator/    # 物理計算コア（Python 標準ライブラリのみ）
-│   ├── range_calc.py        # CLI（シナリオ実行）
-│   ├── ballistics.py        # ODE ソルバ（RK4 / 適応刻み）
-│   ├── physics_config.py    # 物理定数の読み込み・検証
-│   ├── config/              # physics_constants.json（物理定数）
-│   ├── test_*.py            # テスト（54 + 35 件）
-│   ├── SPEC.md              # 物理モデル仕様書
-│   ├── HISTORY.md           # 変更履歴
-│   └── archive/             # 旧バージョン（V0〜V4）
-├── webapp/              # Web アプリ（Vite + React + TypeScript + stdlib API）
-├── desktop/             # デスクトップ GUI（Tkinter、実行時依存なし）
-├── docs/                # 環境構築・推論サーバー構築手順
-├── tools/               # 開発支援ツール（文字混入検査・bootstrap）
-├── .githooks/           # pre-commit フック
-└── opencode.json        # opencode（開発支援 CLI）の設定
-```
+リポジトリは機能ごとに次のディレクトリで構成されています。
 
-| ディレクトリ | 説明 | 主なドキュメント |
-|--------------|------|------------------|
-| `range_calculator/` | 物理コア。全形態がこれを再利用する | `SPEC.md` |
-| `webapp/` | ブラウザで操作・可視化する Web アプリ | `webapp/README.md` |
-| `desktop/` | ブラウザ不要のネイティブ GUI アプリ | `desktop/README.md` |
-| `docs/` | 環境構築・セットアップ手順 | 下記 [`§6 ドキュメント`](#6-ドキュメント) |
-| `tools/` | 文字混入検査・pre-commit フック設定 | — |
-| `opencode.json` | AI 開発支援 CLI（opencode）のプロバイダ設定 | `docs/setup-ollama-server.md` |
+| ディレクトリ | 対象機能 | 特徴 | 主なドキュメント |
+| :--- | :--- | :--- | :--- |
+| `range_calculator/` | 弾道シミュレーション（コア） | 物理計算に特化。他の言語への依存を極力排除し、Python の標準ライブラリのみで動作します。 | `SPEC.md` |
+| `webapp/` | Web UI | ブラウザで操作・可視化します。Python 標準ライブラリの JSON API を利用します。 | `webapp/README.md` |
+| `desktop/` | ネイティブ GUI | Python 標準ライブラリの Tkinter を用いた、ブラウザ不要な実行環境を提供します。 | `desktop/README.md` |
+| `docs/` | 環境構築・セットアップ手順 | macOS / Linux / Windows / Ollama 構築の手順を格納します。 | §6 を参照 |
+| `tools/` | 開発支援ツール | 文字混入検査、ブートストラップ（`bootstrap.sh`）など、開発サイクルを補助するユーティリティ群です。 | — |
+| `.githooks/` | pre-commit フック | コミット時に文字混入検査を自動実行します。 | — |
+| `opencode.json` | LLM プロバイダ設定 | opencode が利用する LLM プロバイダ（Ollama）の設定ファイルです。 | `docs/setup-ollama-server.md` |
 
 ---
 
@@ -132,9 +120,10 @@ bash /path/to/本リポジトリ/tools/bootstrap.sh .
 git add . && git commit -m "init" && git push -u origin main
 ```
 
-opencode のプロバイダ定義（Ollama）はグローバル設定
-（`~/.config/opencode/opencode.json`）に置かれているため、新リポジトリ側に
-`opencode.json` を用意する必要はありません。
+`opencode.json` はプロジェクト単位の設定です。opencode はグローバル設定
+（`~/.config/opencode/opencode.json`）とプロジェクト設定をマージして読み込むため、
+新リポジトリでも同じ LLM プロバイダ設定を使う場合は、このファイルをコピーするか、
+グローバル設定に同等の内容を定義してください。
 
 ---
 
