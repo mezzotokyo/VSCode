@@ -6,6 +6,10 @@ other writing systems while being generated. Korean, Arabic, Cyrillic,
 Indic, and Southeast Asian scripts are never intentional in this repository,
 and the simplified-Chinese forms listed below never occur in correct Japanese.
 
+A whole Chinese word can also slip in when every character it uses is shared
+with Japanese (for example ``本地``, whose characters are ordinary Japanese
+kanji), so a curated list of Chinese-only words is checked as well.
+
 Findings are reported as ``path:line: column`` and the exit status is ``1``
 when anything is found, so the script can be wired into a pre-commit hook.
 
@@ -112,13 +116,37 @@ SIMPLIFIED_ONLY = (
     '飞饭饮马驾验骑鱼鲁鲜鸟鸡齐齿龙获锁规'
 )
 
+# --------------------------------------------------------------------------
+# Rule set 3: Chinese-only words built entirely from characters shared with
+# Japanese.
+#
+# The simplified-Chinese rule above cannot catch a word such as ``本地`` when
+# every character in it is also an ordinary Japanese kanji. The entries below
+# were each verified to be natural Chinese but not valid Japanese, so they can
+# only be contamination. Words that are also valid Japanese (for example
+# ``使用``, ``提供``, ``保存``, ``更新``, ``配置``) are deliberately absent to
+# avoid false positives, as are words already covered by the character rule.
+# --------------------------------------------------------------------------
+
+CHINESE_WORDS = (
+    '本地', '文件', '程序', '数据', '默认', '信息', '硬件', '参数', '函数',
+    '字符串', '路径', '地址', '功能', '部署', '添加', '返回', '等待', '安装',
+    '由于', '如果', '但是', '然后', '我们', '你们', '网络', '软件', '系统',
+    '服务', '用户', '状态', '加载', '下载', '上传', '卸载', '删除', '影响',
+    '关于', '因为',
+)
+
 SKIP_DIRECTORIES = frozenset(
     {'.git', '__pycache__', '.mypy_cache', '.pytest_cache', 'node_modules', 'dist'}
 )
 SKIP_SUFFIXES = frozenset({'.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.pyc'})
 TEXT_SUFFIXES = frozenset(
-    {'.py', '.md', '.json', '.csv', '.txt', '.toml', '.cfg', '.ini', '.yaml', '.yml', '.swift'}
+    {
+        '.py', '.md', '.json', '.csv', '.txt', '.toml', '.cfg', '.ini',
+        '.yaml', '.yml', '.sh', '.swift',
+    }
 )
+EXTRA_FILENAMES = frozenset({'.gitignore', 'pre-commit'})
 
 
 def _in_any(char: str, ranges: tuple[tuple[str, int, int], ...]) -> str | None:
@@ -179,10 +207,24 @@ def iter_files(roots: list[Path]) -> list[Path]:
                 continue
             if path.suffix in SKIP_SUFFIXES:
                 continue
-            if path.suffix not in TEXT_SUFFIXES and path.name != '.gitignore':
+            if path.suffix not in TEXT_SUFFIXES and path.name not in EXTRA_FILENAMES:
                 continue
             found.append(path)
     return found
+
+
+def find_chinese_words(line: str) -> list[tuple[str, int]]:
+    """Return ``(word, column)`` for each Chinese-only word found in ``line``."""
+    matches: list[tuple[str, int]] = []
+    for word in CHINESE_WORDS:
+        start = 0
+        while True:
+            index = line.find(word, start)
+            if index < 0:
+                break
+            matches.append((word, index + 1))
+            start = index + len(word)
+    return sorted(matches, key=lambda item: item[1])
 
 
 def scan(path: Path) -> list[tuple[int, int, str, str, str]]:
@@ -198,6 +240,8 @@ def scan(path: Path) -> list[tuple[int, int, str, str, str]]:
             reason = classify(char)
             if reason is not None:
                 findings.append((number, column, char, reason, line.strip()))
+        for word, column in find_chinese_words(line):
+            findings.append((number, column, word, 'Chinese-only word', line.strip()))
     return findings
 
 
@@ -217,6 +261,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f'  U+{low:04X}-U+{high:04X}  {name}')
         print(f'\nSimplified-Chinese-only characters ({len(SIMPLIFIED_ONLY)}):')
         print('  ' + SIMPLIFIED_ONLY)
+        print(f'\nChinese-only words ({len(CHINESE_WORDS)}):')
+        print('  ' + ' '.join(CHINESE_WORDS))
         return 0
 
     roots = [Path(item) for item in (args.paths or ['.'])]
@@ -232,9 +278,12 @@ def main(argv: list[str] | None = None) -> int:
         scanned += 1
         for number, column, char, reason, context in scan(path):
             total += 1
-            codepoint = f'U+{ord(char):04X}'
-            name = unicodedata.name(char, 'unnamed')
-            print(f'{path}:{number}:{column}: {reason}: {char!r} {codepoint} {name}')
+            if len(char) == 1:
+                codepoint = f'U+{ord(char):04X}'
+                name = unicodedata.name(char, 'unnamed')
+                print(f'{path}:{number}:{column}: {reason}: {char!r} {codepoint} {name}')
+            else:
+                print(f'{path}:{number}:{column}: {reason}: {char!r}')
             print(f'    {context}')
 
     print(f'\nscanned {scanned} file(s), {total} finding(s)')
