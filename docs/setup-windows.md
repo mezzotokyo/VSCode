@@ -170,6 +170,16 @@ OS 既定値のままにする**（macOS/Linux は `true`・Windows は `false` 
   誤検出してコミットがブロックされるため、ネストを作ってしまった場合はその
   ディレクトリを削除する（独自変更がなければ安全）。複製が必要な場合は
   リポジトリの外（例: ローカルドライブ直下）でクローンすること。
+- **PowerShell 7（`pwsh`）から `scoop` を実行しない。** PowerShell 7 は自分の
+  モジュールパスを `PSModulePath` に前置するため、それを引き継いだ Windows
+  PowerShell 5.1 では `Get-FileHash` が解決できず、`scoop install` が
+  `URL ... is not valid` で失敗することがある。`scoop` は Windows PowerShell 5.1
+  から実行する（`pwsh` を使う場合は `pwsh` の中で `scoop` を実行する）。
+- **非対話シェルでの GCM のプロンプト待ちは `bootstrap.sh` が防ぐ。**
+  `tools/bootstrap.sh` は clone ごとにリポジトリローカルで
+  `credential.guiPrompt=false` / `credential.interactive=false` を設定し、
+  自動化（opencode 等）での `git fetch` / `git push` が Git Credential Manager の
+  対話待ちでブロックするのを防ぐ。グローバル設定は変更しない。
 
 ## 6. 関連文書
 

@@ -69,6 +69,8 @@ else
 fi
 
 git -C "$TARGET" config core.hooksPath .githooks
+git -C "$TARGET" config credential.guiPrompt false
+git -C "$TARGET" config credential.interactive false
 chmod +x "$TARGET/.githooks/pre-commit"
 
 if command -v python3 >/dev/null 2>&1; then PY=python3
