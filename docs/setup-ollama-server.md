@@ -44,13 +44,18 @@ ollama list
 |---------------------------|------|------------------------------|
 | `gemma4:e4b-mlx` | Gemma 4 E4B (Ollama) | `gemma4:e4b`（`ollama pull gemma4:e4b`） |
 | `gemma4:e4b-mlx-64k` | Gemma 4 E4B (64K) | `gemma4:e4b`（`ollama pull gemma4:e4b`） |
+| `gemma4:12b-mlx-32k` | Gemma 4 12B (32K) | `gemma4:12b`（`ollama pull gemma4:12b`） |
 | `qwen3.5:4b-mlx-64k` | Qwen3.5 4B (64K) | `qwen3.5:4b`（`ollama pull qwen3.5:4b`） |
+| `qwen3:8b-40k` | Qwen3 8B (40K) | `qwen3:8b`（`ollama pull qwen3:8b`） |
 
 対応する MLX 系タグ（例: `gemma4:e4b-mlx-bf16`）がライブラリに存在する場合は
-そのタグを直接 pull してもよい。64K 系は context を 65536 に制限したエイリアス
-であり、クライアント側の `limit.context` で縛っている。`gemma4:e4b-mlx-64k`
-などのタグが存在しない場合は、ベースモデルを pull したうえでローカルの Modelfile
-でエイリアスを作り、`ollama create` する（例: `num_ctx` を 65536 に設定）。
+そのタグを直接 pull してもよい。64K / 32K / 40K 系は context をそれぞれ 65536 /
+32768 / 40960 に設定したエイリアスであり、クライアント側の `limit.context` と
+揃えている。`gemma4:e4b-mlx-64k` などのタグが存在しない場合は、ベースモデルを
+pull したうえでローカルの Modelfile でエイリアスを作り、`ollama create` する
+（例: `num_ctx` を目的のコンテキスト長に設定）。コンテキスト長を大きくすると
+KV キャッシュの分だけメモリ使用量が増えるため、サーバーのメモリ量に応じて
+調整する。
 
 ## 3. macOS での構築
 
@@ -318,10 +323,24 @@ nssm remove Ollama confirm
             "output": 8192
           }
         },
+        "gemma4:12b-mlx-32k": {
+          "name": "Gemma 4 12B (32K)",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        },
         "qwen3.5:4b-mlx-64k": {
           "name": "Qwen3.5 4B (64K)",
           "limit": {
             "context": 65536,
+            "output": 8192
+          }
+        },
+        "qwen3:8b-40k": {
+          "name": "Qwen3 8B (40K)",
+          "limit": {
+            "context": 40960,
             "output": 8192
           }
         }

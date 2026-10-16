@@ -18,6 +18,13 @@
             "output": 8192
           }
         },
+        "gemma4:12b-mlx-32k": {
+          "name": "Gemma 4 12B (32K)",
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        },
         "qwen3.5:4b-mlx-64k": {
           "name": "Qwen3.5 4B (64K)",
           "limit": {
