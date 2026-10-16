@@ -24,6 +24,13 @@
             "context": 65536,
             "output": 8192
           }
+        },
+        "qwen3:8b-40k": {
+          "name": "Qwen3 8B (40K)",
+          "limit": {
+            "context": 40960,
+            "output": 8192
+          }
         }
       }
     }
