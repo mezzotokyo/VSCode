@@ -14,16 +14,20 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 | Node.js 20.19 以上 / 22.12 以上 | `webapp` の開発サーバ・ビルド | Vite 8 の要件。npm 同梱。`webapp` を使わない場合は不要 |
 | Git | リポジトリ操作・フック実行 | フックは POSIX シェル。Windows は Git Bash の `sh` / `bash` で実行 |
 | GitHub CLI (`gh`) | GitHub 認証・リポジトリ操作 | 認証は `gh auth login` 1 回。HTTPS の credential helper を gh が引き受ける |
+| opencode | 開発支援 CLI | macOS: Homebrew ／ Windows: Scoop ／ Linux: 公式インストーラ。必須ではない |
 
 各 OS の導入手順:
 
 - **macOS**: `xcode-select --install` で `/usr/bin/python3` と `git` が入る。
-  （Homebrew 利用の場合: `brew install python git gh node`）
-- **Windows**: `scoop install git python gh nodejs`（Scoop `main` バケット）。
+  （Homebrew 利用の場合: `brew install python git gh node`、opencode は
+  `brew install anomalyco/tap/opencode`）
+- **Windows**: `scoop install git python gh opencode nodejs`（Scoop `main` バケット）。
   詳細は `docs/setup-windows.md` を参照。
 - **Linux (例: Ubuntu)**: `sudo apt install python3 git` ／ `gh` は
   [公式手順](https://cli.github.com/) ／ Node.js は
-  [NodeSource](https://github.com/nodesource/distributions) 等で導入
+  [NodeSource](https://github.com/nodesource/distributions) ／ opencode は
+  [公式インストーラ](https://opencode.ai/docs/)
+  （`curl -fsSL https://opencode.ai/install | bash`）等で導入
 
 ### GitHub 認証（初回のみ・マシンごと）
 
@@ -63,8 +67,11 @@ bash tools/bootstrap.sh .
 2. `.githooks/pre-commit`・`tools/check_text_hygiene.py`・`.gitattributes` を配置（上書き）
 3. `.gitignore` は雛形の行を差し込み（既存の行は保持）
 4. `git config core.hooksPath .githooks`
-5. `chmod +x .githooks/pre-commit`
-6. 文字混入検査を実行して正常動作を確認
+5. `credential.guiPrompt=false`・`credential.interactive=false` をリポジトリローカルに設定
+   （非対話シェルで opencode 等から `git fetch` / `git push` が GCM の対話待ちで
+   ブロックするのを防止。グローバル設定は変更しない）
+6. `chmod +x .githooks/pre-commit`
+7. 文字混入検査を実行して正常動作を確認
 
 このスクリプトは自分自身が入っているリポジトリを雛形元にするため、
 別プロジェクトにも配布できる（例: `bash /path/to/repo/tools/bootstrap.sh 新しいプロジェクト`）。
