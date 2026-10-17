@@ -81,7 +81,7 @@ class LandingStateTests(unittest.TestCase):
 
     def test_is_still_descending_at_landing(self):
         simulator = simulate()
-        self.assertLess(simulator.state[3], 0.0)
+        self.assertLess(simulator.state[ballistics.VY], 0.0)
 
     def test_horizontal_launch_lands_at_origin(self):
         simulator = simulate(angle_deg=0.0)
@@ -432,6 +432,57 @@ class NumericalGuardTests(unittest.TestCase):
         with warnings.catch_warnings():
             warnings.simplefilter('error', RuntimeWarning)
             self.assertAlmostEqual(simulator.run_simulation()[0], 101.1214, delta=1e-3)
+
+
+def spin_simulate(spin_rpm, axis_deg, dt=0.005, k=DRAG_K):
+    simulator = ProjectileSimulator(
+        V0_MPS,
+        math.radians(ANGLE_DEG),
+        {'drag_scaling_factor': k},
+        dt=dt,
+        lift_model=ballistics.magnus_lift(
+            DEFAULT_PARAMETERS, spin_rpm, axis_deg
+        ),
+    )
+    simulator.run_simulation()
+    return simulator.result()
+
+
+class MagnusLiftTests(unittest.TestCase):
+    """The spin force is vertical for backspin and lateral for sidespin."""
+
+    def test_zero_spin_reproduces_the_drag_only_flight(self):
+        spun = spin_simulate(0.0, 0.0)
+        baseline = simulate(dt=0.005).result()
+        self.assertEqual(spun, baseline)
+
+    def test_backspin_extends_and_topspin_shortens_the_range(self):
+        baseline = spin_simulate(0.0, 0.0).ground_range
+        backspin = spin_simulate(2500.0, 0.0)
+        topspin = spin_simulate(-2500.0, 0.0)
+        self.assertGreater(backspin.ground_range, baseline)
+        self.assertLess(topspin.ground_range, baseline)
+        self.assertEqual(backspin.lateral_range, 0.0)
+        self.assertEqual(topspin.lateral_range, 0.0)
+
+    def test_sidespin_curves_symmetrically_without_changing_the_range(self):
+        positive = spin_simulate(2500.0, 90.0)
+        negative = spin_simulate(2500.0, -90.0)
+        self.assertGreater(positive.lateral_range, 0.0)
+        self.assertLess(negative.lateral_range, 0.0)
+        self.assertAlmostEqual(
+            positive.lateral_range, -negative.lateral_range, delta=1e-6
+        )
+        self.assertAlmostEqual(
+            positive.ground_range, negative.ground_range, delta=1e-6
+        )
+
+    def test_spin_axis_vector_convention(self):
+        self.assertEqual(ballistics.spin_axis_vector(0.0), (0.0, 0.0, 1.0))
+        x, y, z = ballistics.spin_axis_vector(90.0)
+        self.assertAlmostEqual(x, 0.0)
+        self.assertAlmostEqual(y, -1.0)
+        self.assertAlmostEqual(z, 0.0)
 
 
 if __name__ == '__main__':

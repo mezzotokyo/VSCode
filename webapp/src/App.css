@@ -17,6 +17,29 @@
   color: #52606d;
 }
 
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 8px 18px;
+  border: 1px solid #bcccdc;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #334e68;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: #2f80ed;
+  border-color: #2f80ed;
+  color: #ffffff;
+  font-weight: 600;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
@@ -89,6 +112,11 @@
   background: #ffffff;
 }
 
+.field.inline .read-only {
+  color: #52606d;
+  font-variant-numeric: tabular-nums;
+}
+
 .field.checkbox {
   flex-direction: row;
   align-items: center;
@@ -97,6 +125,42 @@
 
 .field.checkbox input {
   accent-color: #2f80ed;
+}
+
+.field.disabled {
+  opacity: 0.5;
+}
+
+.orbital {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 12px 14px 14px;
+  margin: 0;
+}
+
+.orbital legend {
+  padding: 0 6px;
+  color: #627d98;
+  font-size: 0.82rem;
+}
+
+.spin {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 12px 14px 14px;
+  margin: 0;
+}
+
+.spin legend {
+  padding: 0 6px;
+  color: #627d98;
+  font-size: 0.82rem;
 }
 
 .controls button {
@@ -218,6 +282,12 @@
 
 .chart .landing-point {
   fill: #eb5757;
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+.chart .body-point {
+  fill: #52606d;
   stroke: #ffffff;
   stroke-width: 1.5;
 }

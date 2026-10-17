@@ -1,9 +1,13 @@
 import type { TrajectoryPoint } from '../types'
 
+export type ChartView = 'xy' | 'xz'
+
 interface TrajectoryChartProps {
   trajectory: TrajectoryPoint[]
-  idealRange: number
-  groundRange: number
+  idealRange: number | null
+  groundRange: number | null
+  centralBody?: boolean
+  view?: ChartView
 }
 
 const WIDTH = 940
@@ -21,37 +25,90 @@ function niceStep(range: number, count: number): number {
   return nice * magnitude
 }
 
-function ticks(max: number, count: number): number[] {
-  const step = niceStep(max, count)
+function axisTicks(low: number, high: number, count: number): number[] {
+  const step = niceStep(high - low, count)
+  const start = Math.floor(low / step) * step
   const values: number[] = []
-  for (let value = 0; value <= max + step / 2; value += step) {
-    values.push(Number(value.toFixed(6)))
+  for (let value = start; value <= high + step / 2; value += step) {
+    if (value >= low - step / 2) {
+      values.push(Number(value.toFixed(6)))
+    }
   }
   return values
+}
+
+interface Domain {
+  xLo: number
+  xHi: number
+  yLo: number
+  yHi: number
+}
+
+function chartDomain(
+  trajectory: TrajectoryPoint[],
+  idealRange: number | null,
+  groundRange: number | null,
+  centralBody: boolean,
+  view: ChartView,
+): Domain {
+  const xs = trajectory.map((p) => p.x)
+  const ys = trajectory.map((p) => (view === 'xz' ? p.z : p.y))
+  if (idealRange !== null && idealRange > 0) {
+    xs.push(idealRange)
+  }
+  if (groundRange !== null && groundRange > 0) {
+    xs.push(groundRange)
+  }
+
+  if (!centralBody) {
+    return {
+      xLo: 0,
+      xHi: Math.max(...xs, 1) * 1.05,
+      yLo: Math.min(...ys, 0),
+      yHi: Math.max(...ys, 1) * 1.15,
+    }
+  }
+
+  const xLo = Math.min(...xs, 0)
+  const xHi = Math.max(...xs, 0)
+  const yLo = Math.min(...ys, 0)
+  const yHi = Math.max(...ys, 0)
+  const span = Math.max(xHi - xLo, yHi - yLo, 1)
+  const pad = span * 0.06
+  return { xLo: xLo - pad, xHi: xHi + pad, yLo: yLo - pad, yHi: yHi + pad }
 }
 
 export function TrajectoryChart({
   trajectory,
   idealRange,
   groundRange,
+  centralBody = false,
+  view = 'xy',
 }: TrajectoryChartProps) {
   const plotWidth = WIDTH - MARGIN.left - MARGIN.right
   const plotHeight = HEIGHT - MARGIN.top - MARGIN.bottom
 
-  const maxX = Math.max(idealRange, groundRange, ...trajectory.map((p) => p.x), 1)
-  const maxY = Math.max(...trajectory.map((p) => p.y), 1)
-  const xDomain = maxX * 1.05
-  const yDomain = maxY * 1.15
+  const { xLo, xHi, yLo, yHi } = chartDomain(
+    trajectory,
+    idealRange,
+    groundRange,
+    centralBody,
+    view,
+  )
 
-  const sx = (x: number) => MARGIN.left + (x / xDomain) * plotWidth
-  const sy = (y: number) => MARGIN.top + plotHeight - (y / yDomain) * plotHeight
+  const height = (p: TrajectoryPoint) => (view === 'xz' ? p.z : p.y)
+
+  const sx = (x: number) => MARGIN.left + ((x - xLo) / (xHi - xLo)) * plotWidth
+  const sy = (y: number) => MARGIN.top + plotHeight - ((y - yLo) / (yHi - yLo)) * plotHeight
 
   const path = trajectory
-    .map((p, index) => `${index === 0 ? 'M' : 'L'} ${sx(p.x).toFixed(2)} ${sy(p.y).toFixed(2)}`)
+    .map((p, index) => `${index === 0 ? 'M' : 'L'} ${sx(p.x).toFixed(2)} ${sy(height(p)).toFixed(2)}`)
     .join(' ')
 
-  const xTicks = ticks(xDomain, 6)
-  const yTicks = ticks(yDomain, 5)
+  const xTicks = axisTicks(xLo, xHi, 6)
+  const yTicks = axisTicks(yLo, yHi, 5)
+  const xAxis = xLo <= 0 && 0 <= xHi ? sx(0) : MARGIN.left
+  const yAxis = yLo <= 0 && 0 <= yHi ? sy(0) : MARGIN.top + plotHeight
   const launch = trajectory[0]
   const landing = trajectory[trajectory.length - 1]
 
@@ -71,7 +128,7 @@ export function TrajectoryChart({
             y2={sy(value)}
             className="grid"
           />
-          <text x={MARGIN.left - 10} y={sy(value)} className="tick" textAnchor="end">
+          <text x={xAxis - 8} y={sy(value)} className="tick" textAnchor="end">
             {value.toFixed(0)}
           </text>
         </g>
@@ -86,7 +143,7 @@ export function TrajectoryChart({
             y2={MARGIN.top + plotHeight}
             className="grid"
           />
-          <text x={sx(value)} y={MARGIN.top + plotHeight + 20} className="tick" textAnchor="middle">
+          <text x={sx(value)} y={yAxis + 14} className="tick" textAnchor="middle">
             {value.toFixed(0)}
           </text>
         </g>
@@ -94,20 +151,24 @@ export function TrajectoryChart({
 
       <line
         x1={MARGIN.left}
-        x2={MARGIN.left}
+        x2={MARGIN.left + plotWidth}
+        y1={yAxis}
+        y2={yAxis}
+        className="axis"
+      />
+      <line
+        x1={xAxis}
+        x2={xAxis}
         y1={MARGIN.top}
         y2={MARGIN.top + plotHeight}
         className="axis"
       />
-      <line
-        x1={MARGIN.left}
-        x2={MARGIN.left + plotWidth}
-        y1={MARGIN.top + plotHeight}
-        y2={MARGIN.top + plotHeight}
-        className="axis"
-      />
 
-      {idealRange > 0 && (
+      {centralBody && (
+        <circle cx={sx(0)} cy={sy(0)} r={6} className="body-point" />
+      )}
+
+      {idealRange !== null && idealRange > 0 && (
         <g>
           <line
             x1={sx(idealRange)}
@@ -124,10 +185,10 @@ export function TrajectoryChart({
 
       {path && <path d={path} className="trajectory" />}
 
-      {landing && (
-        <circle cx={sx(landing.x)} cy={sy(landing.y)} r={5} className="landing-point" />
+      {landing && !centralBody && (
+        <circle cx={sx(landing.x)} cy={sy(height(landing))} r={5} className="landing-point" />
       )}
-      {launch && <circle cx={sx(launch.x)} cy={sy(launch.y)} r={5} className="launch-point" />}
+      {launch && <circle cx={sx(launch.x)} cy={sy(height(launch))} r={5} className="launch-point" />}
 
       <text
         x={MARGIN.left + plotWidth / 2}
@@ -144,7 +205,7 @@ export function TrajectoryChart({
         textAnchor="middle"
         transform="rotate(-90)"
       >
-        height y (m)
+        {view === 'xz' ? 'lateral z (m)' : 'height y (m)'}
       </text>
     </svg>
   )

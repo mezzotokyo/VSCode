@@ -16,13 +16,30 @@ from typing import Any, Mapping
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config" / "physics_constants.json"
 
-PositiveFields = ("max_time", "gravity", "mass", "diameter")
-NonNegativeFields = ("air_density", "drag_coefficient")
+PositiveFields = (
+    "max_time",
+    "gravity",
+    "mass",
+    "diameter",
+    "mu",
+    "equatorial_radius",
+    "scale_height",
+)
+NonNegativeFields = ("air_density", "drag_coefficient", "j2", "sea_level_density")
 
 
 @dataclass(frozen=True)
 class PhysicalParameters:
-    """Immutable bundle of the parameters that define a simulation scenario."""
+    """Immutable bundle of the parameters that define a simulation scenario.
+
+    ``mu`` is the standard gravitational parameter G*M of the central body, used
+    by :func:`ballistics.newtonian_gravity`; it is unrelated to the flat-earth
+    ``gravity`` acceleration used by the default ballistics model. ``j2`` and
+    ``equatorial_radius`` parametrise the oblateness perturbation
+    (:func:`ballistics.j2_gravity`), while ``scale_height`` and
+    ``sea_level_density`` parametrise the single-exponential atmosphere
+    (:func:`ballistics.exponential_density`).
+    """
 
     max_time: float = 300.0
     gravity: float = 9.81
@@ -30,6 +47,11 @@ class PhysicalParameters:
     mass: float = 0.149
     diameter: float = 0.075
     drag_coefficient: float = 0.47
+    mu: float = 3.986004418e14
+    j2: float = 1.08263e-3
+    equatorial_radius: float = 6.378137e6
+    scale_height: float = 8500.0
+    sea_level_density: float = 1.225
 
     def __post_init__(self) -> None:
         for name in PositiveFields:
@@ -136,6 +158,11 @@ class ProjectileConstants:
     MASS = DEFAULT_PARAMETERS.mass
     DIAMETER = DEFAULT_PARAMETERS.diameter
     DRAG_COEFFICIENT = DEFAULT_PARAMETERS.drag_coefficient
+    MU = DEFAULT_PARAMETERS.mu
+    J2 = DEFAULT_PARAMETERS.j2
+    EQUATORIAL_RADIUS = DEFAULT_PARAMETERS.equatorial_radius
+    SCALE_HEIGHT = DEFAULT_PARAMETERS.scale_height
+    SEA_LEVEL_DENSITY = DEFAULT_PARAMETERS.sea_level_density
 
     @staticmethod
     def default() -> PhysicalParameters:

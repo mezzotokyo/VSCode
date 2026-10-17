@@ -133,26 +133,42 @@ git add . && git commit -m "init" && git push -u origin main
 
 ### 3.1 基礎方程式
 
-質量で割った加速度形式の 4 元状態 `(x, y, vx, vy)` を陽的 4 次ルンゲ–クッタ（RK4）で
-積分します。
+質量で割った加速度形式の 6 元状態 `(x, y, z, vx, vy, vz)` を陽的 4 次ルンゲ–クッタ（RK4）で
+積分します。重力は鉛直下向き `-y` 方向のみに作用し、横方向 `z` はスピン（Magnus 揚力）による
+左右のずれを表します（スピン 0 では常に 0）。
 
 ```text
 dx/dt  = vx
 dy/dt  = vy
+dz/dt  = vz
 dvx/dt = -k · vx · |v|
 dvy/dt = -k · vy · |v| - g
+dvz/dt = -k · vz · |v|
 
-|v| = sqrt(vx² + vy²)
+|v| = sqrt(vx² + vy² + vz²)
 ```
 
 | 記号 | 意味 | 既定値 |
 |------|------|--------|
 | `g` | 重力加速度 | 9.81 m/s² |
 | `ρ` | 空気密度 | 1.225 kg/m³ |
-| `Cd` | 抗力係数 | 0.47（球体代表値。MLB / NPB プリセットあり） |
+| `Cd` | 抗力係数 | 0.47（球体代表値。既定値に固定） |
 | `m` | 弾丸質量 | 0.149 kg |
 | `d` | 弾丸直径 | 0.075 m |
 | `k` | 抗力係数 `= 0.5·ρ·A·Cd / m` | 8.535522e-03 m⁻¹ |
+| `mu` | 中心天体の標準重力パラメータ G·M（球面重力モデル用） | 3.986004418e14 m³/s² |
+| `J2` | 扁平率摂動の第2帯球係数（`j2_gravity()` 用） | 1.08263e-3 |
+
+重力は加速度場として差し替えられます（`constant_gravity()` / `newtonian_gravity(mu)` /
+`j2_gravity(mu, J2, R)`）。`newtonian_gravity()` は原点へ向かう逆二乗則 `a = -mu·r/|r|³` を
+与え、`ProjectileSimulator.from_state()` と `ground_collision=False` を組み合わせて軌道計算に
+使います。`j2_gravity()` はさらに扁平（第2帯球）摂動 `a_J2` を加え、`sum_fields(*fields)` は
+複数の加速度場を合成して多体問題へ拡張できます。ニュートン重力での軌道は `orbital.py` の
+`orbital_elements()` で軌道要素（長半径・離心率・近点/遠点・周期・傾斜角）に換算できます。
+
+抗力も加速度場（`DragModel`）として差し替えられ、高度依存の大気密度
+（`DensityModel`: `constant_density` / `exponential_density` / `tabulated_density`）を
+`atmospheric_drag()` と組み合わせて軌道減衰を扱えます。
 
 ### 3.2 数値解法
 
@@ -179,12 +195,21 @@ dvy/dt = -k · vy · |v| - g
 
 ```sh
 python3 range_calculator/range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angle=<deg>]
+python3 range_calculator/range_calc.py --spin=<rpm> [--spin-axis=<deg>] [--v0=<km/h>] [--angle=<deg>]
+python3 range_calculator/range_calc.py --orbital [--radius=<m>] [--v0=<km/h>] [--adaptive] [--j2] [--atmosphere]
 ```
 
 ```sh
 python3 range_calculator/range_calc.py                      # 既定シナリオ（data.csv）
 python3 range_calculator/range_calc.py data.csv 0.01 --adaptive --v0=170 --angle=35
+python3 range_calculator/range_calc.py --spin=3000 --spin-axis=0   # バックスピンと横ずれ
+python3 range_calculator/range_calc.py --orbital --radius=7.0e6 --v0=27166   # 円軌道と軌道要素
+python3 range_calculator/range_calc.py --orbital --v0=27166 --j2 --atmosphere  # J2 + 大気
 ```
+
+`--spin` は弾道に任意の Magnus 揚力（スピン）を有効にします（`--spin-axis` は回転軸角）。
+`--orbital` は中心重力場（`newtonian_gravity`）で軌道を積分し、軌道要素を出力します。
+`--j2` で扁平摂動（`j2_gravity`）、`--atmosphere` で区分指数大気による抗力減衰を有効にします。
 
 ### 4.2 Web アプリ（`webapp/`）
 
@@ -205,10 +230,11 @@ cd webapp && npm run dev
 ### 4.3 デスクトップ GUI（`desktop/`）
 
 Python 標準ライブラリの Tkinter（ttk）によるネイティブ GUI。追加の `pip`
-パッケージなしで動作し、PyInstaller で単一実行ファイルをビルドできます。
+パッケージなしで動作し、PyInstaller で実行ファイル（弾道用・軌道用の 2 つ）をビルドできます。
 
 ```sh
-python3 desktop/app.py
+python3 desktop/ballistic_app.py   # 弾道ウィンドウ
+python3 desktop/orbital_app.py     # 軌道ウィンドウ
 ```
 
 詳細: `desktop/README.md`
@@ -217,16 +243,18 @@ python3 desktop/app.py
 
 ## 5. 検証・品質
 
-- **物理コアのテスト**: 89 件（`test_range_calc.py` 54 件 + `test_adaptive_timestep.py` 35 件）
+- **物理コアのテスト**: 133 件（`test_range_calc.py` 58 件 + `test_adaptive_timestep.py` 39 件 + `test_orbital.py` 36 件）
   - 解析解（`k=0`）との一致 / 収束性 / 着弾状態 / 回帰 / パラメータ検証 /
-    シミュレータ契約 / 数値ガード
-- **desktop のテスト**: 25 件（GUI 純ロジック 18 件 + webapp との対応漏れ検査 7 件）
+    シミュレータ契約 / 数値ガード / Magnus 揚力 / ニュートン・J2 重力 / 軌道要素 / 密度・抗力モデル
+- **desktop のテスト**: 62 件（GUI 純ロジック・軌跡チャート・webapp との対応漏れ検査）
+- **webapp/server のテスト**: 17 件（`gravity_model` / `drag_model` / 軌道要素 / スピン API）
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`
   （`0 finding(s)` が正常。pre-commit フックに組み込み）
 
 ```sh
 python3 -m unittest discover -s range_calculator -p "test_*.py"
 python3 -m unittest discover -s desktop/tests -p "test_*.py"
+python3 -m unittest discover -s webapp/server -p "test_*.py"
 python3 tools/check_text_hygiene.py
 ```
 
@@ -240,7 +268,7 @@ python3 tools/check_text_hygiene.py
 | ドキュメント | 内容 |
 |--------------|------|
 | `range_calculator/SPEC.md` | 物理モデル仕様・テスト仕様・適用限界 |
-| `range_calculator/HISTORY.md` | 変更履歴（V0〜V4 の変遷） |
+| `range_calculator/HISTORY.md` | 変更履歴（V0〜V5 の変遷） |
 | `webapp/README.md` | Web アプリの起動・API・構成 |
 | `desktop/README.md` | デスクトップ GUI の起動・ビルド・テスト |
 | `desktop/PLAN.md` | デスクトップアプリの開発計画書 |

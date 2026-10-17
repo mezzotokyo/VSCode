@@ -34,8 +34,21 @@ RANGE_CALCULATOR = REPO_ROOT / "range_calculator"
 if str(RANGE_CALCULATOR) not in sys.path:
     sys.path.insert(0, str(RANGE_CALCULATOR))
 
-from ballistics import ProjectileSimulator, SimulationDiverged  # noqa: E402
-from physics_config import DEFAULT_PARAMETERS  # noqa: E402
+from ballistics import (  # noqa: E402
+    EARTH_ATMOSPHERE_LAYERS,
+    ProjectileSimulator,
+    SimulationDiverged,
+    atmospheric_drag,
+    exponential_density,
+    flat_altitude,
+    j2_gravity,
+    magnus_lift,
+    newtonian_gravity,
+    orbital_altitude,
+    tabulated_density,
+)
+from orbital import orbital_elements  # noqa: E402
+from physics_config import DEFAULT_PARAMETERS, coerce_parameters  # noqa: E402
 
 KMPH_TO_MPS = 1000 / 3600
 
@@ -46,11 +59,28 @@ DEFAULT_TIMESTEP = 0.01
 PARAMETER_FIELDS = (
     "max_time",
     "gravity",
+    "mu",
+    "j2",
+    "equatorial_radius",
+    "scale_height",
+    "sea_level_density",
     "air_density",
     "mass",
     "diameter",
     "drag_coefficient",
 )
+
+GRAVITY_MODELS = ("constant", "newtonian", "j2")
+DRAG_MODELS = ("constant", "exponential", "tabulated")
+
+# Closed orbits are integrated for one full period times this margin, so the
+# trajectory visibly closes instead of stopping after the projectile max_time.
+ORBITAL_PERIOD_MARGIN = 1.05
+
+# Upper bound on the number of integration steps for one orbit. A full period at
+# the projectile dt (0.01 s) would need ~600k steps (~30 s of wall time), so the
+# orbital timestep is raised to ``period / this`` when the caller asks for finer.
+MAX_ORBITAL_STEPS = 4000
 
 MAX_TRAJECTORY_POINTS = 2000
 
@@ -118,34 +148,141 @@ def _parameter_overrides(payload: dict[str, Any]) -> dict[str, float] | None:
     return {key: _number(raw, key, 0.0) for key in raw}
 
 
+def _gravity_model_name(payload: dict[str, Any]) -> str:
+    value = payload.get("gravity_model", "constant")
+    if not isinstance(value, str):
+        raise BadRequest("gravity_model must be a string")
+    if value not in GRAVITY_MODELS:
+        raise BadRequest(f"unknown gravity_model: {value!r}")
+    return value
+
+
+def _drag_model_name(payload: dict[str, Any]) -> str:
+    value = payload.get("drag_model", "constant")
+    if not isinstance(value, str):
+        raise BadRequest("drag_model must be a string")
+    if value not in DRAG_MODELS:
+        raise BadRequest(f"unknown drag_model: {value!r}")
+    return value
+
+
+def _initial_state(payload: dict[str, Any]) -> tuple[float, ...]:
+    raw = payload.get("initial_state")
+    if raw is None:
+        raise BadRequest("initial_state is required for newtonian gravity")
+    if not isinstance(raw, list) or len(raw) != 6:
+        raise BadRequest("initial_state must be a list of 6 numbers")
+    state: list[float] = []
+    for value in raw:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise BadRequest("initial_state must be a list of 6 numbers")
+        if not math.isfinite(value):
+            raise BadRequest("initial_state must be finite")
+        state.append(float(value))
+    return tuple(state)
+
+
 def simulate(payload: dict[str, Any]) -> dict[str, Any]:
     velocity_kmph = _number(payload, "velocity_kmph", DEFAULT_VELOCITY_KMPH)
     angle_deg = _number(payload, "angle_deg", DEFAULT_ANGLE_DEG)
     dt = _number(payload, "dt", DEFAULT_TIMESTEP)
     adaptive = _boolean(payload, "adaptive", False)
+    spin_rate_rpm = _number(payload, "spin_rate", 0.0)
+    spin_axis_deg = _number(payload, "spin_axis_angle", 0.0)
     if dt <= 0.0:
         raise BadRequest("dt must be greater than 0")
 
     constants = _parameter_overrides(payload)
-    simulator = ProjectileSimulator(
-        velocity_kmph * KMPH_TO_MPS,
-        math.radians(angle_deg),
-        constants,
-        dt=dt,
-        adaptive=adaptive,
-    )
+    profile = coerce_parameters(constants)
+    gravity_model_name = _gravity_model_name(payload)
+    drag_model_name = _drag_model_name(payload)
+    orbital = gravity_model_name in ("newtonian", "j2")
+
+    if gravity_model_name == "j2":
+        gravity_model = j2_gravity(
+            profile.mu, profile.j2, profile.equatorial_radius
+        )
+    elif gravity_model_name == "newtonian":
+        gravity_model = newtonian_gravity(profile.mu)
+    else:
+        gravity_model = None
+
+    drag_model = None
+    if drag_model_name != "constant":
+        if orbital:
+            altitude = orbital_altitude(profile.equatorial_radius)
+        else:
+            altitude = flat_altitude()
+        if drag_model_name == "exponential":
+            density = exponential_density(
+                profile.sea_level_density, profile.scale_height
+            )
+        else:
+            density = tabulated_density(EARTH_ATMOSPHERE_LAYERS)
+        drag_model = atmospheric_drag(profile, density, altitude)
+
+    if orbital:
+        state = _initial_state(payload)
+        mu = profile.mu
+        span = None
+        elements = orbital_elements(state, mu)
+        if elements.period is not None:
+            span = elements.period * ORBITAL_PERIOD_MARGIN
+            if "max_time" not in (constants or {}):
+                constants = {**(constants or {}), "max_time": span}
+                profile = coerce_parameters(constants)
+        orbital_dt = dt
+        if span is not None:
+            orbital_dt = max(dt, span / MAX_ORBITAL_STEPS)
+        simulator = ProjectileSimulator.from_state(
+            state,
+            constants,
+            orbital_dt,
+            adaptive=adaptive,
+            gravity_model=gravity_model,
+            drag_model=drag_model,
+            ground_collision=False,
+        )
+    else:
+        mu = None
+        lift_model = None
+        if spin_rate_rpm != 0.0:
+            lift_model = magnus_lift(profile, spin_rate_rpm, spin_axis_deg)
+        simulator = ProjectileSimulator(
+            velocity_kmph * KMPH_TO_MPS,
+            math.radians(angle_deg),
+            constants,
+            dt=dt,
+            adaptive=adaptive,
+            drag_model=drag_model,
+            lift_model=lift_model,
+        )
 
     trajectory: list[dict[str, float]] = []
 
-    def record(t: float, state: tuple[float, float, float, float]) -> None:
-        x, y, vx, vy = state
+    def record(t: float, state: tuple[float, float, float, float, float, float]) -> None:
+        x, y, z, vx, vy, vz = state
         trajectory.append(
-            {"t": t, "x": x, "y": y, "vx": vx, "vy": vy, "speed": math.hypot(vx, vy)}
+            {"t": t, "x": x, "y": y, "z": z, "vx": vx, "vy": vy,
+             "speed": math.hypot(vx, vy, vz)}
         )
 
-    ideal_range = simulator.calculate_ideal_range()
+    ideal_range = None if orbital else simulator.calculate_ideal_range()
     ground_range, flight_time = simulator.run_simulation(on_step=record)
     result = simulator.result()
+
+    elements = None
+    if orbital:
+        computed = orbital_elements(simulator.state, mu)
+        elements = {
+            "specific_energy": computed.specific_energy,
+            "semi_major_axis": computed.semi_major_axis,
+            "eccentricity": computed.eccentricity,
+            "periapsis": computed.periapsis,
+            "apoapsis": computed.apoapsis,
+            "period": computed.period,
+            "inclination_deg": math.degrees(computed.inclination_rad),
+        }
 
     return {
         "input": {
@@ -153,10 +290,15 @@ def simulate(payload: dict[str, Any]) -> dict[str, Any]:
             "angle_deg": angle_deg,
             "dt": dt,
             "adaptive": adaptive,
+            "gravity_model": gravity_model_name,
+            "drag_model": drag_model_name,
+            "spin_rate": spin_rate_rpm,
+            "spin_axis_angle": spin_axis_deg,
         },
         "result": {
             "ideal_range": ideal_range,
             "ground_range": ground_range,
+            "lateral_range": result.lateral_range,
             "flight_time": flight_time,
             "impact_speed": result.impact_speed,
             "landed": result.landed,
@@ -165,6 +307,7 @@ def simulate(payload: dict[str, Any]) -> dict[str, Any]:
             "timestep_min": result.timestep_min,
             "timestep_max": result.timestep_max,
         },
+        "orbital": elements,
         "trajectory": _downsample(trajectory, MAX_TRAJECTORY_POINTS),
     }
 
@@ -186,10 +329,16 @@ def default_config() -> dict[str, Any]:
             "angle_deg": DEFAULT_ANGLE_DEG,
             "dt": DEFAULT_TIMESTEP,
             "adaptive": False,
+            "gravity_model": "constant",
+            "drag_model": "constant",
+            "spin_rate": 0.0,
+            "spin_axis_angle": 0.0,
         },
         "parameters": {
             field: getattr(DEFAULT_PARAMETERS, field) for field in PARAMETER_FIELDS
         },
+        "gravity_models": list(GRAVITY_MODELS),
+        "drag_models": list(DRAG_MODELS),
     }
 
 

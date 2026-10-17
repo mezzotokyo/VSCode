@@ -4,5 +4,10 @@
   "air_density": 1.225,
   "mass": 0.149,
   "diameter": 0.075,
-  "drag_coefficient": 0.47
+  "drag_coefficient": 0.47,
+  "mu": 3.986004418e14,
+  "j2": 0.00108263,
+  "equatorial_radius": 6378137.0,
+  "scale_height": 8500.0,
+  "sea_level_density": 1.225
 }

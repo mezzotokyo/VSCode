@@ -531,4 +531,88 @@ V4 が「発散防止であって精度保証ではない」と docstring に書
 
 ---
 
-*最終更新: 旧版ファイルのアーカイブを追記（2026-10-10）*
+## V5 以降の変更（2026-10-17）
+
+1. **状態ベクトルの 3D 化** — `State` を `(x, y, z, vx, vy, vz)` の 6 元組に拡張し、
+   名前付きインデックス定数 `X, Y, Z, VX, VY, VZ = range(6)` を導入した。重力は鉛直方向
+   成分 `vy` を更新する。`desktop` / `webapp` の記録コールバックと `test_range_calc.py` を
+   6 要素に対応させた。`z` は現状常に 0（横方向の将来拡張用）。
+2. **ニュートン球面重力モデル** — 加速度場を `GravityModel = Callable[[State], tuple[float, float, float]]`
+   として差し替え可能にした（`constant_gravity()` 既定、`newtonian_gravity(mu)` は
+   `a = -mu·r/|r|³`）。`ProjectileSimulator` に `gravity_model` / `ground_collision` と
+   全状態指定の `from_state()` を追加。標準重力パラメータ `mu`（既定: 地球 3.986004418e14）
+   を `physics_config` / `config/physics_constants.json` に追加した。
+3. **軌道要素と CLI・API への接続** — `orbital.py` に `orbital_elements()`（比エネルギー・
+   長半径・離心率・近点/遠点・周期・傾斜角）を追加。CLI に `--orbital` / `--radius=<m>`
+   モードを追加し（`parse_args()` の返り値を `CliArgs` に変更）、webapp API に
+   `gravity_model`（`"constant"` / `"newtonian"`）と `initial_state`、`orbital` 出力を、
+    desktop の `LaunchConditions` / `SimulationOutcome` に同項目を追加した。UI ウィジェットは
+    この時点では変更していない（CLI とモデル/API 層のみ。GUI 対応は後述の 5.）。
+4. **摂動モデル（J2・大気・多体合成）** — 重力・抗力をそれぞれ加速度場
+   `GravityModel` / `DragModel` として差し替えられるよう一般化した。`j2_gravity(mu, j2, R)`
+   は点質量に第2帯球（扁平）項を加え（極軸は `z`、`j2 = 0` で厳密に `newtonian_gravity` と
+   一致）、`sum_fields(*fields)` は任意個の場を成分加算して多体問題へ拡張する合成フックを
+   与える。大気は `DensityModel = Callable[[float], float]` を導入し、`constant_density` /
+   `exponential_density` / `tabulated_density`（区分指数。`EARTH_ATMOSPHERE_LAYERS` は
+   0–1000 km テーブル）と、高度取得 `orbital_altitude(R)` / `flat_altitude()` を用意した。
+   積分は `derivatives_with_models(state, gravity, drag=None)` に一般化し、
+   `ProjectileSimulator` は keyword-only の `drag_model` を受ける（既定は従来の一定抗力で
+   数値完全一致）。パラメータ `j2` / `equatorial_radius` / `scale_height` /
+   `sea_level_density` を JSON に追加、CLI に `--j2` / `--atmosphere`、webapp API に
+   `gravity_model="j2"` と `drag_model`（`"constant"` / `"exponential"` / `"tabulated"`）、
+    desktop の `LaunchConditions` に `drag_model` / `j2` を追加した。UI ウィジェットは
+    この時点では変更していない（GUI 対応は後述の 5.）。
+
+5. **GUI/UI の適合** — `desktop` と `webapp` の UI を拡張モデルへ追随させた。両者とも
+   重力モデル（一定 / ニュートン / J2）と抗力（密度）モデル（なし / 一様 / 指数 / 区分指数）の
+   セレクタ、中心重力時の軌道初期状態（半径・速度。円軌道速度を自動設定）入力を追加し、
+   Result は弾道（射程系）と軌道（軌道要素系）で行を動的に切り替える。`desktop` では
+   これらを `gui_model` の純関数（`gravity_label` / `density_label` / `orbital_speed` /
+   `make_conditions` / `format_optional` / `result_metrics`、`DEFAULT_METRIC_ROWS`）に
+   分離し、GUI 層（当時は `app.py`）はウィジェットの接続に徹する。`trajectory_chart.py` は
+   `chart_domain` / `axis_ticks` を追加して軌道（負座標・原点＝中心天体、`ideal_range`
+   なし）に対応し、`tests/test_trajectory_chart.py` で検証する。`webapp` は `types.ts`
+   （`ideal_range: number | null`、`orbital`、`gravity_model` / `drag_model` /
+   `initial_state`）、`TrajectoryChart.tsx`（汎用ドメイン・中心天体マーカー）、
+   `App.tsx`（同セレクタ・軌道入力・動的 Result）を更新した。重力を中心重力へ切り替えると
+   抗力モデルを「なし」へ自動変更する（抗力下の軌道は発散しやすいため）。UI は独立実装だが、
+   `desktop/tests/test_agreement.py` が `DRAG_PRESETS` の同期を引き続き検査する。閉軌道では
+   **1周期**（周期 × 1.05）を自動積分して軌道を閉じ（`desktop/gui_model.orbital_time_span`、
+   `server.ORBITAL_PERIOD_MARGIN`）、刻み幅を周期 / 4000 に丸める（既定 `dt=0.01` では 1周に
+   約60万ステップ・約30秒かかるため）。着弾が無い軌道では時間上限警告を抑止する。
+
+6. **Magnus 揚力（スピン）** — `ballistics` に `magnus_lift(parameters, spin_rpm,
+   spin_axis_deg)` と `spin_axis_vector(θ)`、定数 `LIFT_COEFFICIENT_SLOPE=1.0` /
+   `LIFT_COEFFICIENT_MAX=0.3` を追加した。揚力係数 `C_L = min(slope·S, max)`
+   （`S = |ω|R/v`、`R = 直径/2`、`ω = rpm·2π/60`）、加速度
+   `a = (1/2·ρ·A·C_L/m)·v·(ŝ×v)`。回転軸 `ŝ = spin_axis_vector(θ)` は
+   `θ=0` でバックスピン（上向き）、`+90` で *+z*、`-90` で *-z*、`±180` でトップスピン。
+   積分は `derivatives_with_models(..., lift=)` / `_rk4_step(..., lift=)`、
+   `ProjectileSimulator(lift_model=)` / `from_state(..., lift_model=)` を通し、
+   `FlightResult.lateral_range`（`|z|`）を出力する。CLI に `--spin=<rpm>` /
+   `--spin-axis=<deg>`（`CliArgs.spin_rpm` / `spin_axis_deg`）と横ずれ表示を追加した。
+   webapp API は `spin_rate` / `spin_axis_angle`（既定 0）を受け、軌跡に `z`、
+   Result に `lateral_range` を返す。desktop / webapp の UI にスピン入力と横ずれ行を
+   追加し、チャートに上面（x–z）ビューを追加した。
+7. **desktop の画面分離** — 単一の `app.py` を廃止し、共有基盤 `app_common.BaseApp`
+   と 2 つの独立ウィンドウ `ballistic_app.py`（弾道・スピン・表示切替つき）/
+   `orbital_app.py`（中心重力）へ分割した。`build.py` は 2 実行ファイル
+   （`range_calculator_ballistic` / `range_calculator_orbital`）を生成する。
+8. **webapp の画面分離** — `App.tsx` を上部ナビ（弾道 / 軌道）のシェルとし、
+   共通の `lib/sim.ts`（定数・リクエスト生成・メトリクス整形）と
+   `views/BallisticView.tsx` / `views/OrbitalView.tsx` に分割した。
+   `TrajectoryChart` は `view`（`'xy'` / `'xz'`）で断面・上面を切り替える。
+9. **抗力係数 `Cd` の固定** — MLB / NPB の球種プリセットによるプルダウンを廃止し、
+   既定プロファイルの球体代表値 `Cd = 0.47` に固定した。`desktop/gui_model.DRAG_PRESETS`
+   と `webapp/src/lib/sim.ts` の `DRAG_PRESETS` は既定値の同期検査用に 1 要素のみ保持する。
+
+`range_calculator` のテストは **89 件 → 110 件**（`test_orbital.py` 18 件と
+`test_adaptive_timestep.py` の CLI テスト追加分を含む）、さらに摂動モデル追加で
+**110 件 → 129 件**、Magnus 追加を含め **133 件**（`test_range_calc.py` に
+`MagnusLiftTests` を追加）。`desktop` は 25 件 → 29 件 → 34 件 → **52 件**、スピン・
+上面図・画面分離のテストを加え **62 件**（`test_gui_model.py` / `test_trajectory_chart.py` /
+`test_agreement.py`）、webapp/server は 7 件 → 12 件 → **17 件**。
+
+---
+
+*最終更新: Magnus 揚力・弾道/軌道の画面分離・抗力係数 `Cd` の球体固定（2026-10-17）*

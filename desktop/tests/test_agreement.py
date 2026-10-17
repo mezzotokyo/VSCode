@@ -4,7 +4,7 @@ The desktop app deliberately duplicates three things from ``webapp`` so that
 each entry point stays self-contained:
 
 * the Japanese error localisation (``webapp/server/server.py`` ``localize_error``)
-* the drag-coefficient presets (``webapp/src/App.tsx`` ``DRAG_PRESETS``)
+* the drag-coefficient presets (``webapp/src/lib/sim.ts`` ``DRAG_PRESETS``)
 * the simulate glue (``webapp/server/server.py`` ``simulate``)
 
 These tests fail when one side changes without the other, which turns the
@@ -23,7 +23,7 @@ from pathlib import Path
 DESKTOP_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = DESKTOP_DIR.parent
 SERVER_PATH = REPO_ROOT / "webapp" / "server" / "server.py"
-APP_TSX_PATH = REPO_ROOT / "webapp" / "src" / "App.tsx"
+APP_TSX_PATH = REPO_ROOT / "webapp" / "src" / "lib" / "sim.ts"
 
 if str(DESKTOP_DIR) not in sys.path:
     sys.path.insert(0, str(DESKTOP_DIR))

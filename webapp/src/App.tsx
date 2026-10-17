@@ -1,268 +1,44 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { simulate } from './api'
-import { TrajectoryChart } from './components/TrajectoryChart'
-import type { SimulateRequest, SimulateResponse } from './types'
+import { useState } from 'react'
+import { BallisticView } from './views/BallisticView'
+import { OrbitalView } from './views/OrbitalView'
 import './App.css'
 
-const DRAG_COEFFICIENT_DEFAULT = 0.47
-const DRAG_PRESETS = [
-  { value: DRAG_COEFFICIENT_DEFAULT, label: '球体（既定値）' },
-  { value: 0.348, label: 'MLB（無回転）' },
-  { value: 0.358, label: 'MLB（2500rpm, 自由飛行）' },
-  { value: 0.3, label: 'NPB' },
-] as const
-
-const INITIAL_REQUEST: SimulateRequest = {
-  velocity_kmph: 170,
-  angle_deg: 35,
-  dt: 0.01,
-  adaptive: false,
-  parameters: { drag_coefficient: DRAG_COEFFICIENT_DEFAULT },
-}
-
-const DT_MIN = 0.0001
-const DT_MAX = 10
-
-function format(value: number, digits = 2): string {
-  return value.toFixed(digits)
-}
-
-const DECIMAL_FORMAT = new Intl.NumberFormat('en-US', {
-  useGrouping: false,
-  maximumFractionDigits: 20,
-})
-
-function formatDecimal(value: number, significantDigits = 6): string {
-  if (!Number.isFinite(value)) {
-    return String(value)
-  }
-  return DECIMAL_FORMAT.format(Number(value.toPrecision(significantDigits)))
-}
-
-function dtValidityMessage(input: HTMLInputElement): string {
-  if (input.validity.rangeUnderflow) {
-    return `刻み幅 dt は ${DT_MIN} 以上で指定してください。`
-  }
-  if (input.validity.rangeOverflow) {
-    return `刻み幅 dt は ${DT_MAX} 以下で指定してください。`
-  }
-  if (input.validity.stepMismatch) {
-    return `刻み幅 dt は ${DT_MIN} 単位で指定してください。`
-  }
-  if (input.validity.badInput) {
-    return '刻み幅 dt には数値を指定してください。'
-  }
-  return '刻み幅 dt の値を確認してください。'
-}
+type Mode = 'ballistic' | 'orbital'
 
 export default function App() {
-  const [form, setForm] = useState<SimulateRequest>(INITIAL_REQUEST)
-  const [data, setData] = useState<SimulateResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-
-  const run = useCallback(async (request: SimulateRequest) => {
-    setLoading(true)
-    setError(null)
-    setData(null)
-    try {
-      setData(await simulate(request))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void run(INITIAL_REQUEST)
-  }, [run])
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    void run(form)
-  }
-
-  const result = data?.result ?? null
-  const trajectory = data?.trajectory ?? []
-  const adaptiveRun = data?.input.adaptive ?? false
-  const reduction =
-    result && result.ideal_range > 0
-      ? ((result.ideal_range - result.ground_range) / result.ideal_range) * 100
-      : 0
+  const [mode, setMode] = useState<Mode>('ballistic')
 
   return (
     <main className="app">
       <header className="header">
         <h1>Range Calculator Web</h1>
         <p className="subtitle">
-          弾道シミュレーション（抗力あり RK4）をブラウザで可視化します。
+          弾道と軌道をそれぞれのビューで可視化します（RK4・適応刻み）。
         </p>
       </header>
 
-      <div className="layout">
-        <form className="panel controls" onSubmit={handleSubmit}>
-          <h2>Launch conditions</h2>
+      <nav className="tabs" role="tablist" aria-label="simulation mode">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'ballistic'}
+          className={mode === 'ballistic' ? 'tab active' : 'tab'}
+          onClick={() => setMode('ballistic')}
+        >
+          弾道 (Ballistic)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'orbital'}
+          className={mode === 'orbital' ? 'tab active' : 'tab'}
+          onClick={() => setMode('orbital')}
+        >
+          軌道 (Orbital)
+        </button>
+      </nav>
 
-          <label className="field">
-            <span>
-              初速 <b>{format(form.velocity_kmph, 1)}</b> km/h
-            </span>
-            <input
-              type="range"
-              min={10}
-              max={500}
-              step={1}
-              value={form.velocity_kmph}
-              onChange={(event) =>
-                setForm({ ...form, velocity_kmph: Number(event.target.value) })
-              }
-            />
-          </label>
-
-          <label className="field">
-            <span>
-              発射角 <b>{format(form.angle_deg, 1)}</b> deg
-            </span>
-            <input
-              type="range"
-              min={1}
-              max={89}
-              step={1}
-              value={form.angle_deg}
-              onChange={(event) =>
-                setForm({ ...form, angle_deg: Number(event.target.value) })
-              }
-            />
-          </label>
-
-          <label className="field inline">
-            <span>抗力係数 Cd</span>
-            <select
-              value={String(form.parameters?.drag_coefficient ?? DRAG_COEFFICIENT_DEFAULT)}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  parameters: {
-                    ...form.parameters,
-                    drag_coefficient: Number(event.target.value),
-                  },
-                })
-              }
-            >
-              {DRAG_PRESETS.map((preset) => (
-                <option key={preset.value} value={String(preset.value)}>
-                  {preset.label}（Cd={preset.value}）
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field inline">
-            <span>刻み幅 dt (s)</span>
-            <input
-              type="number"
-              min={DT_MIN}
-              max={DT_MAX}
-              step={DT_MIN}
-              value={form.dt}
-              onInvalid={(event) => {
-                event.currentTarget.setCustomValidity(
-                  dtValidityMessage(event.currentTarget),
-                )
-                setData(null)
-              }}
-              onChange={(event) => {
-                event.currentTarget.setCustomValidity('')
-                setForm({ ...form, dt: Number(event.target.value) })
-              }}
-            />
-          </label>
-
-          <label className="field checkbox">
-            <input
-              type="checkbox"
-              checked={form.adaptive}
-              onChange={(event) =>
-                setForm({ ...form, adaptive: event.target.checked })
-              }
-            />
-            <span>adaptive 刻み（安定性上限で自動短縮）</span>
-          </label>
-
-          <button type="submit" disabled={loading}>
-            {loading ? '計算中...' : 'シミュレーション実行'}
-          </button>
-
-          {error && <p className="error">エラー: {error}</p>}
-        </form>
-
-        <section className="panel results">
-          <h2>Result</h2>
-          {!result ? (
-            <p className="placeholder">
-              {loading ? '計算中...' : 'シミュレーションを実行してください。'}
-            </p>
-          ) : (
-            <>
-              {result.timed_out && (
-                <p className="warning">
-                  時間上限に達しました。着弾前に計算が終了しています。
-                </p>
-              )}
-              <dl className="metrics">
-                <div>
-                  <dt>理想射程（抗力なし）</dt>
-                  <dd>{format(result.ideal_range)} m</dd>
-                </div>
-                <div>
-                  <dt>実射程（抗力あり）</dt>
-                  <dd>{format(result.ground_range)} m</dd>
-                </div>
-                <div>
-                  <dt>到達距離の低減率</dt>
-                  <dd>{format(reduction, 1)} %</dd>
-                </div>
-                <div>
-                  <dt>飛行時間</dt>
-                  <dd>{format(result.flight_time)} s</dd>
-                </div>
-                <div>
-                  <dt>着弾速度</dt>
-                  <dd>{format(result.impact_speed)} m/s</dd>
-                </div>
-                <div>
-                  <dt>積分ステップ数</dt>
-                  <dd>{result.steps}</dd>
-                </div>
-                {result.timestep_min !== null && (
-                  <div>
-                    <dt>{adaptiveRun ? '最短刻み' : '刻み幅'}</dt>
-                    <dd>{formatDecimal(result.timestep_min)} s</dd>
-                  </div>
-                )}
-                <div>
-                  <dt>着弾</dt>
-                  <dd>{result.landed ? 'yes' : 'no'}</dd>
-                </div>
-              </dl>
-            </>
-          )}
-        </section>
-      </div>
-
-      <section className="panel chart-panel">
-        <h2>Trajectory</h2>
-        {result ? (
-          <TrajectoryChart
-            trajectory={trajectory}
-            idealRange={result.ideal_range}
-            groundRange={result.ground_range}
-          />
-        ) : (
-          <p className="placeholder">軌跡はまだありません。</p>
-        )}
-      </section>
+      {mode === 'ballistic' ? <BallisticView /> : <OrbitalView />}
     </main>
   )
 }

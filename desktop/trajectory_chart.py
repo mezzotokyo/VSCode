@@ -15,6 +15,10 @@ from gui_model import SimulationOutcome, TrajectoryPoint
 
 MARGIN = {"top": 28, "right": 28, "bottom": 52, "left": 68}
 
+VIEW_XY = "xy"
+VIEW_XZ = "xz"
+VIEWS = (VIEW_XY, VIEW_XZ)
+
 COLOR_GRID = "#e5edf5"
 COLOR_AXIS = "#9fb3c8"
 COLOR_TICK = "#7b8794"
@@ -24,6 +28,7 @@ COLOR_IDEAL = "#f2994a"
 COLOR_IDEAL_LABEL = "#b45309"
 COLOR_LAUNCH = "#27ae60"
 COLOR_LANDING = "#eb5757"
+COLOR_BODY = "#52606d"
 COLOR_BACKGROUND = "#ffffff"
 COLOR_BORDER = "#d9e2ec"
 
@@ -60,6 +65,66 @@ def ticks(maximum: float, count: int) -> list[float]:
     return values
 
 
+def axis_ticks(low: float, high: float, count: int) -> list[float]:
+    """Round tick values covering ``[low, high]`` at a "nice" step.
+
+    Extends :func:`ticks` to domains that go negative, which orbits need.
+    """
+    step = nice_step(high - low, count)
+    start = math.floor(low / step) * step
+    values: list[float] = []
+    value = start
+    while value <= high + step / 2:
+        if value >= low - step / 2:
+            values.append(round(value, 6))
+        value += step
+    return values
+
+
+def _vertical_values(
+    points: Sequence[TrajectoryPoint], view: str
+) -> list[float]:
+    """The plotted height for each point: ``y`` side-on, ``z`` top-down."""
+    if view == VIEW_XZ:
+        return [point.z for point in points]
+    if view == VIEW_XY:
+        return [point.y for point in points]
+    raise ValueError(f"unknown view: {view!r}")
+
+
+def chart_domain(
+    points: Sequence[TrajectoryPoint],
+    ideal_range: float | None,
+    ground_range: float | None,
+    central_body: bool,
+    view: str = VIEW_XY,
+) -> tuple[float, float, float, float]:
+    """Bounds ``(x_lo, x_hi, y_lo, y_hi)`` that fit a trajectory for plotting.
+
+    Central-gravity runs pass ``central_body=True``: the origin (the gravitating
+    centre) is included and the bounds may go negative, so an orbit is not
+    clipped. Flat-surface runs pin both minima to 0 and reproduce the historical
+    ``x * 1.05`` / ``y * 1.15`` scaling. ``view`` chooses the vertical axis
+    (side-on height ``"xy"`` or top-down lateral offset ``"xz"``).
+    """
+    xs = [point.x for point in points]
+    ys = _vertical_values(points, view)
+    if ideal_range is not None and ideal_range > 0:
+        xs.append(ideal_range)
+    if ground_range is not None and ground_range > 0:
+        xs.append(ground_range)
+
+    if not central_body:
+        y_lo = min(ys + [0.0])
+        return 0.0, max(xs + [1.0]) * 1.05, y_lo, max(ys + [1.0]) * 1.15
+
+    x_lo, x_hi = min(xs + [0.0]), max(xs + [0.0])
+    y_lo, y_hi = min(ys + [0.0]), max(ys + [0.0])
+    span = max(x_hi - x_lo, y_hi - y_lo, 1.0)
+    pad = span * 0.06
+    return x_lo - pad, x_hi + pad, y_lo - pad, y_hi + pad
+
+
 class TrajectoryChart(tk.Canvas):
     """A canvas that renders one simulation's trajectory and ideal-range line."""
 
@@ -72,22 +137,37 @@ class TrajectoryChart(tk.Canvas):
             **kwargs,
         )
         self._trajectory: Sequence[TrajectoryPoint] = []
-        self._ideal_range = 0.0
-        self._ground_range = 0.0
+        self._ideal_range: float | None = None
+        self._ground_range: float | None = None
+        self._central_body = False
+        self._view = VIEW_XY
         self.bind("<Configure>", lambda _event: self._redraw())
 
-    def show(self, outcome: SimulationOutcome) -> None:
+    def show(self, outcome: SimulationOutcome, view: str | None = None) -> None:
         """Render the trajectory and markers for a completed simulation."""
         self._trajectory = outcome.trajectory
         self._ideal_range = outcome.result.ideal_range
         self._ground_range = outcome.result.ground_range
+        self._central_body = outcome.orbital is not None
+        if view is not None:
+            self._view = view
         self._redraw()
+
+    def set_view(self, view: str) -> None:
+        """Switch the vertical axis (``"xy"`` side-on / ``"xz"`` top-down)."""
+        if view not in VIEWS:
+            raise ValueError(f"unknown view: {view!r}")
+        if view != self._view:
+            self._view = view
+            self._redraw()
 
     def clear(self) -> None:
         """Remove the current drawing."""
         self._trajectory = []
-        self._ideal_range = 0.0
-        self._ground_range = 0.0
+        self._ideal_range = None
+        self._ground_range = None
+        self._central_body = False
+        self._view = VIEW_XY
         self._redraw()
 
     def _redraw(self) -> None:
@@ -100,48 +180,61 @@ class TrajectoryChart(tk.Canvas):
             return
 
         points = self._trajectory
-        max_x = max(
-            [self._ideal_range, self._ground_range]
-            + [point.x for point in points]
-            + [1.0]
+        x_lo, x_hi, y_lo, y_hi = chart_domain(
+            points,
+            self._ideal_range,
+            self._ground_range,
+            self._central_body,
+            self._view,
         )
-        max_y = max([point.y for point in points] + [1.0])
-        x_domain = max_x * 1.05
-        y_domain = max_y * 1.15
+
+        def vertical(point: TrajectoryPoint) -> float:
+            return point.z if self._view == VIEW_XZ else point.y
 
         def sx(x: float) -> float:
-            return MARGIN["left"] + x / x_domain * plot_width
+            return MARGIN["left"] + (x - x_lo) / (x_hi - x_lo) * plot_width
 
         def sy(y: float) -> float:
-            return MARGIN["top"] + plot_height - y / y_domain * plot_height
+            return MARGIN["top"] + plot_height - (y - y_lo) / (y_hi - y_lo) * plot_height
 
         left = MARGIN["left"]
         top = MARGIN["top"]
         right = left + plot_width
         bottom = top + plot_height
 
-        for value in ticks(y_domain, 5):
+        y_axis = sy(0.0) if y_lo <= 0.0 <= y_hi else bottom
+        x_axis = sx(0.0) if x_lo <= 0.0 <= x_hi else left
+
+        for value in axis_ticks(y_lo, y_hi, 5):
             y = sy(value)
             self.create_line(left, y, right, y, fill=COLOR_GRID)
             self.create_text(
-                left - 10, y, text=f"{value:.0f}", fill=COLOR_TICK, anchor="e"
+                x_axis - 8, y, text=f"{value:.0f}", fill=COLOR_TICK, anchor="e"
             )
 
-        for value in ticks(x_domain, 6):
+        for value in axis_ticks(x_lo, x_hi, 6):
             x = sx(value)
             self.create_line(x, top, x, bottom, fill=COLOR_GRID)
             self.create_text(
-                x, bottom + 20, text=f"{value:.0f}", fill=COLOR_TICK, anchor="n"
+                x, y_axis + 14, text=f"{value:.0f}", fill=COLOR_TICK, anchor="n"
             )
 
-        self.create_line(left, top, left, bottom, fill=COLOR_AXIS, width=2)
-        self.create_line(left, bottom, right, bottom, fill=COLOR_AXIS, width=2)
+        self.create_line(left, y_axis, right, y_axis, fill=COLOR_AXIS, width=2)
+        self.create_line(x_axis, top, x_axis, bottom, fill=COLOR_AXIS, width=2)
 
-        if self._ideal_range > 0:
+        if self._central_body:
+            self.create_oval(
+                sx(0.0) - 6,
+                sy(0.0) - 6,
+                sx(0.0) + 6,
+                sy(0.0) + 6,
+                fill=COLOR_BODY,
+                outline=COLOR_BACKGROUND,
+            )
+
+        if self._ideal_range is not None and self._ideal_range > 0:
             x = sx(self._ideal_range)
-            self.create_line(
-                x, top, x, bottom, fill=COLOR_IDEAL, dash=(6, 5)
-            )
+            self.create_line(x, top, x, bottom, fill=COLOR_IDEAL, dash=(6, 5))
             self.create_text(
                 x - 6,
                 top + 14,
@@ -153,25 +246,26 @@ class TrajectoryChart(tk.Canvas):
         if points:
             coords: list[float] = []
             for point in points:
-                coords.extend((sx(point.x), sy(point.y)))
+                coords.extend((sx(point.x), sy(vertical(point))))
             if len(coords) >= 4:
                 self.create_line(*coords, fill=COLOR_TRAJECTORY, width=3)
 
             launch = points[0]
-            landing = points[-1]
-            self.create_oval(
-                sx(landing.x) - 5,
-                sy(landing.y) - 5,
-                sx(landing.x) + 5,
-                sy(landing.y) + 5,
-                fill=COLOR_LANDING,
-                outline=COLOR_BACKGROUND,
-            )
+            last = points[-1]
+            if not self._central_body:
+                self.create_oval(
+                    sx(last.x) - 5,
+                    sy(vertical(last)) - 5,
+                    sx(last.x) + 5,
+                    sy(vertical(last)) + 5,
+                    fill=COLOR_LANDING,
+                    outline=COLOR_BACKGROUND,
+                )
             self.create_oval(
                 sx(launch.x) - 5,
-                sy(launch.y) - 5,
+                sy(vertical(launch)) - 5,
                 sx(launch.x) + 5,
-                sy(launch.y) + 5,
+                sy(vertical(launch)) + 5,
                 fill=COLOR_LAUNCH,
                 outline=COLOR_BACKGROUND,
             )
@@ -186,7 +280,7 @@ class TrajectoryChart(tk.Canvas):
         self.create_text(
             16,
             top + plot_height / 2,
-            text="height y (m)",
+            text="lateral z (m)" if self._view == VIEW_XZ else "height y (m)",
             fill=COLOR_AXIS_LABEL,
             angle=90,
             anchor="center",

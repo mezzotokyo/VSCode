@@ -27,25 +27,53 @@
 
 | 記号 | 意味 | 単位 |
 |------|------|------|
-| `x` | 水平位置 | m |
+| `x` | 水平位置（射程方向） | m |
 | `y` | 射出点からの鉛直高さ | m |
-| `vx` | 水平速度成分 | m/s |
+| `z` | 水平位置（横方向。スピン時のみ非零） | m |
+| `vx` | 水平速度成分（射程方向） | m/s |
 | `vy` | 鉛直速度成分 | m/s |
+| `vz` | 水平速度成分（横方向。スピン時のみ非零） | m/s |
 
-状態は 4 元組 `State = (x, y, vx, vy)` として保持される。
+状態は 6 元組 `State = (x, y, z, vx, vy, vz)` として保持される。
+モジュール定数 `X, Y, Z, VX, VY, VZ` が各成分のインデックスを与える。
 単位系は内部で **SI 一貫（m, s, kg）** に統一されている（温度は使用しない）。
 
 ### 2.2 作用する力
 
 自由飛行に対応する2つの力のみをモデル化する。
 
-**(a) 重力** — 座標系の鉛直下向き `-y` 方向に、質量によらず一定の加速度を与える。
+**(a) 重力** — 既定モデルでは座標系の鉛直下向き `-y` 方向に、質量によらず一定の加速度を与える。
 
 ```
 ay = -g        g = 9.81 m/s^2
 ```
 
-（`gravity` パラメータで変更可能。球面・緯度依存は考慮しない。→ 第7章）
+（`gravity` パラメータで変更可能。既定の平面弾道モデルは球面・緯度依存を考慮しない。→ 第7章）
+
+重力は加速度場 `gravity(state) -> (ax, ay, az)` として差し替え可能である
+（内部表現: `GravityModel`、積分は `derivatives_with_gravity()`）。既定モデル `constant_gravity()`
+は上記の一定加速度を返す。もう一つの実装 `newtonian_gravity(mu)` は原点へ向かう逆二乗則
+
+```
+a = -mu · r / |r|³        r = (x, y, z),  mu = 中心天体の G·M
+```
+
+を与え、位置の原点を中心天体の中心とする軌道計算に用いる。軌道計算では地面衝突判定
+（`ground_collision=False`）と `from_state()` による全状態指定を使う。標準重力パラメータは
+`mu` パラメータ（既定: 地球の 3.986004418e14 m³/s²）で与える。
+
+**J2 扁平摂動** — `j2_gravity(mu, j2, equatorial_radius)` は上記の点質量項に第2帯球関数
+（扁平）項を加えた場を返す。極軸は座標 `z` 軸とし、`s = z/|r|` として
+
+```
+a_J2 = -(3/2) · J2 · mu · R² / |r|⁵ · ( (1-5s²)x, (1-5s²)y, (3-5s²)z )
+```
+
+`J2` は `J2_EARTH = 1.08263e-3`、`R`（`equatorial_radius`）は地球赤道半径 6.378137e6 m を既定
+とする。`j2 = 0` のとき場は厳密に `newtonian_gravity(mu)` と一致する（摂動は完全に任意）。
+
+**多体合成** — `sum_fields(*fields)` は任意個の加速度場を成分ごとに加算した場を返す。各中心天体を
+独立の `mu`/`j2` 場として与えれば多体問題へ拡張できる（合成フックであり、既定は単体のまま）。
 
 **(b) 空気抵抗（抗力）** — 速度ベクトルの**逆方向**に大きさが速度の2乗に比例する力。
 
@@ -76,18 +104,62 @@ k    = 0.5 × 1.225 × 4.417865e-03 × 0.47 / 0.149
 レガシー互換のため `{"drag_scaling_factor": k}` を渡すと `Cd` を逆算して上書きする
 （`PhysicalParameters.with_drag_scaling_factor()`）。
 
+**高度依存の抗力（大気モデル）** — 抗力も加速度場 `drag(state) -> (ax, ay, az)`
+（内部表現: `DragModel`）として差し替え可能である。既定の `constant_drag(k)` は上記の
+一定密度抗力に一致する。軌道計算用に、密度を高度の関数とする
+
+```
+DensityModel = Callable[[float], float]        a_drag = -k(h) · v · |v|
+k(h) = (1/2 · ρ(h) · A · Cd) / m
+```
+
+を用意する。密度モデルは次の3種:
+
+| 関数 | 定義 |
+|------|------|
+| `constant_density(rho)` | `ρ(h) = rho`（高度に依存しない） |
+| `exponential_density(rho0, H, h0=0)` | `ρ(h) = rho0 · exp(-(h-h0)/H)`（単一スケールハイト近似） |
+| `tabulated_density(layers)` | `(基準高度, rho, H)` 層テーブルによる区分指数近似 |
+
+`atmospheric_drag(parameters, density_model, altitude)` は `altitude(state)` で得た高度から
+`k(h)` を評価し、`derivatives_with_models()` 経由で積分に渡される。既定の層テーブル
+`EARTH_ATMOSPHERE_LAYERS` は 0–1000 km の区分指数フィット（基準密度・スケールハイトは
+`scale_height` / `sea_level_density` とは独立の代表値）である。高度の取り方には
+`orbital_altitude(R) = |r| - R`（球面）と `flat_altitude() = y`（平面）がある。
+
 ### 2.3 時間発展方程式（微分方程式）
 
 ```
 dx/dt  = vx
 dy/dt  = vy
+dz/dt  = vz
 dvx/dt = -k · vx · |v|
 dvy/dt = -k · vy · |v| - g
+dvz/dt = -k · vz · |v|
 
-|v| = sqrt(vx² + vy²)
+|v| = sqrt(vx² + vy² + vz²)
 ```
 
-この4変数の1階連立ODEを数値的に解く（`ballistics.derivatives()`）。
+この6元の1階連立ODEを数値的に解く（`ballistics.derivatives()`）。横方向 `z` / `vz` は
+`dvz/dt` が抗力のみでは零であり、Magnus 揚力を有効にしたときに初めて駆動される（§7 item 5）。
+
+### 2.4 軌道要素（`orbital.py`）
+
+ニュートン重力での軌道は、位置 `r`・速度 `v` と中心天体の `mu` から
+**軌道要素**（`OrbitalElements`、`orbital_elements(state, mu)`）として解析的に表せる。
+
+| 要素 | 定義 |
+|------|------|
+| `specific_energy` | 比エネルギー `ε = |v|²/2 − μ/|r|` |
+| `semi_major_axis` | 長半径 `a = −μ/(2ε)`（放物線 `ε = 0` では `None`） |
+| `eccentricity` | 離心率 `e = |e_vec|`、`e_vec = ((|v|² − μ/|r|) r − (r·v) v)/μ` |
+| `periapsis` | 近点半径 `r_p = h²/(μ(1+e))`、`h = |r × v|` |
+| `apoapsis` | 遠点半径 `a(1+e)`（開軌道 `e ≥ 1` では `None`） |
+| `period` | 公転周期 `T = 2π√(a³/μ)`（開軌道では `None`） |
+| `inclination_rad` | 軌道傾斜角 `acos(h_z/h)` |
+
+`|r| = 0`（中心天体上）や `mu ≤ 0` は定義できないため `ValueError` を送出する。
+円軌道（`e ≈ 0`）では `r_p ≈ r_a ≈ a` となる。
 
 ---
 
@@ -155,7 +227,7 @@ dt_max ≈ 1.2405 s
 ### 4.3 地面衝突（`y = 0`）の扱い
 
 各ステップ後に `y < 0` になった場合、そのステップ内の `y = 0` 交点を**線形補間**で求め、
-衝突時の状態 `(x, y=0, vx, vy)` を確定する（`_interpolate_ground_crossing()`）。
+衝突時の状態 `(x, y=0, z, vx, vy, vz)` を確定する（`_interpolate_ground_crossing()`）。
 交点時刻は `t + ratio · dt`。補間比率 `ratio` は [0,1] にクランプされる。
 `y` ちょうど 0 となる退化ケース（`span = 0`）では `ratio = 1.0` を採用する。
 
@@ -189,7 +261,12 @@ dt_max ≈ 1.2405 s
   "air_density": 1.225,
   "mass": 0.149,
   "diameter": 0.075,
-  "drag_coefficient": 0.47
+  "drag_coefficient": 0.47,
+  "mu": 3.986004418e14,
+  "j2": 0.00108263,
+  "equatorial_radius": 6378137.0,
+  "scale_height": 8500.0,
+  "sea_level_density": 1.225
 }
 ```
 
@@ -201,6 +278,17 @@ dt_max ≈ 1.2405 s
 | `mass` | `mass` | kg | `> 0` |
 | `diameter` | `diameter` | m | `> 0` |
 | `drag_coefficient` | `drag_coefficient` | — | `≥ 0` |
+| `mu` | `mu` | m³/s² | `> 0` |
+| `j2` | `j2` | — | `≥ 0` |
+| `equatorial_radius` | `equatorial_radius` | m | `> 0` |
+| `scale_height` | `scale_height` | m | `> 0` |
+| `sea_level_density` | `sea_level_density` | kg/m³ | `≥ 0` |
+
+`mu` は中心天体の標準重力パラメータ G·M であり、球面重力モデル
+（`ballistics.newtonian_gravity()`）でのみ使う。既定の平面弾道モデルは `gravity` を使い、
+`mu` は参照しない。`j2` / `equatorial_radius` は `j2_gravity()` の摂動項、
+`scale_height` / `sea_level_density` は `exponential_density()` の単一指数大気に使う。
+いずれも既定モデル（一定重力・一定密度抗力）では参照しない。
 
 制約違反は dataclass の `__post_init__` で検証され、`TypeError` / `ValueError` を送出する。
 未知のキーは `ValueError`（strict な検証）。JSON の構文エラーも `ValueError` に変換される。
@@ -212,14 +300,24 @@ dt_max ≈ 1.2405 s
 
 以下は本ツールが**意図的に考慮していない**項目であり、結果の解釈範囲を限定する。
 
-1. **高度依存の大気密度** — `ρ` を一定（1.225）とする。高打球では実際より抗力を過大評価。
-2. **重力の実高度・緯度依存** — `g` を 9.81 一定とする（実際の上昇では約1%減衰）。
+1. **高度依存の大気密度** — 既定モデルは `ρ` を一定（1.225）とするため、高打球では実際より
+   抗力を過大評価する。区分指数大気モデル（`tabulated_density()` / `exponential_density()`）へ
+   切り替えれば高度依存は扱えるが、層テーブルは代表値であり、温度・太陽活動依存は考慮しない。
+2. **重力の実高度・緯度依存** — 既定モデルは `g` を 9.81 一定とする（実際の上昇では約1%減衰）。
+   球面重力モデル（`newtonian_gravity()`）へ切り替えれば高度依存（逆二乗則）は扱える。
+   さらに `j2_gravity()` で扁平（帯球）項を加えられるが、緯度依存の高次項・遠心力は考慮しない。
 3. **地形の曲率（地球の球面性）** — 平面 x-y 座標を用いる。本ツールの基準ケースでは
    射程 101 m であり、地球の曲率による高低差は最大約 0.8 mm（0.0008 %）に留まるため
    影響は実用的に無視できる。射程が 10 km 規模に達すると高低差は約 8 m となり、
    誤差が顕在化する。
 4. **風・突風・空気の移流** — 大気静止を仮定。
-5. **回転による揚力（Magnus効果）・スピンの軌道への影響** — 無視。
+5. **回転による揚力（Magnus効果）・スピンの軌道への影響** — 既定では無視（スピン 0）。
+   ただし任意で簡易 Magnus 揚力モデルを有効化できる（`spin_rate` / `spin_axis`）。
+   揚力係数は `C_L = min(slope · S, max)`（`S = |ω| R / v`、`R = 直径/2`、
+   `ω = spin_rate · 2π/60`、既定 `slope = 1.0` / `max = 0.3`）、加速度は
+   `a = (1/2 · ρ · A · C_L / m) · v · (ŝ × v)` で、回転軸 `ŝ` は `spin_axis` で張る。
+   実測の回転球空力に基づく厳密モデルではなく、定性的な左右・上下のずれを与える
+   近似である（CLI は §9 の `--spin` / `--spin-axis`）。
 6. **反発係数・跳ね返り** — 初衝突で計算終了。
 7. **温度・湿度による `Cd` と `ρ` の変動** — 固定値とする。
 8. **形状による抗力係数の変動** — `Cd = 0.47` を定数とする（球体近傍の代表値）。
@@ -230,9 +328,10 @@ dt_max ≈ 1.2405 s
    確認するまで、本値は暫定値として扱う**。
    既定プロファイルの質量 149 g・直径 75 mm は野球ボールの公認寸法（質量 141.7–148.8 g、
    円周 22.9–23.5 cm）に基づく値であり、`Cd = 0.47` はこのサイズ・質量の球体に対する
-   代表値である。球種を限定した実測値（MLB 自由飛行: 0.348/0.358、NPB 風洞: MLB より低値）は
-   `parameters.drag_coefficient` で指定でき、Web アプリ（`webapp/README.md`）はこれを
-   プリセットとして提供する。
+   代表値である。球種を限定した実測値（MLB 自由飛行: 0.348/0.358、NPB 風洞: MLB より低値）
+   は回転・風洞条件に依存するため本ツールでは採らず、**`Cd = 0.47`（球体代表値）に固定**
+   する。Web アプリ（`webapp/README.md`）・デスクトップ GUI とも `drag_coefficient` は
+   この既定値を送信し、UI に球種プリセットの選択は設けない。
 10. **縮尺効果（直径依存 Reynolds 数）** — 高速域での `Cd` 変化は考慮しない。
 
 ---
@@ -276,7 +375,7 @@ R_ideal = 213.60 m
 
 ### 8.3 テストによる検証
 
-`test_range_calc.py` に以下の9系統・全54件のテストが存在する。テストはフラット
+`test_range_calc.py` に以下の10系統・全58件のテストが存在する。テストはフラット
 import（`import ballistics` 等）を用いるため、カレントディレクトリに注意すること
 （リポジトリルートまたは `range_calculator/` のどちらからでも実行できる）:
 
@@ -299,8 +398,12 @@ Windows では `python3` の代わりに `python` でもよい（Scoop 構成で
 | `ConfigurationTests` | パラメータ読み込み・検証・未知キー・レガシー互換 |
 | `ScenarioLoadingTests` | `data.csv` 欠損・不正時の既定値退避、CLI 実行 |
 | `NumericalGuardTests` | 発散検出、粗すぎる刻みの警告・例外 |
+| `MagnusLiftTests` | スピン軸ベクトル、Magnus 揚力による横ずれ `z`、回転数 0 での無効化 |
 
-v5 では `test_adaptive_timestep.py`（7系統・全35件）が追加され、合計 89 件となる。適応刻みモード（`adaptive=True`）は、安定性帯内では固定刻みと一致し、安定性帯を超える `dt_max` でも発散せず完走するが、精度改善を保証しない点がこれらのテストで固定されている。
+v5 では `test_adaptive_timestep.py`（39件）と `test_orbital.py`（36件、ニュートン/J2 重力場・
+円/楕円軌道・`orbital_elements()`・密度/抗力モデル）が追加され、`range_calculator` 全体で
+133 件となる。適応刻みモード（`adaptive=True`）は、安定性帯内では固定刻みと一致し、安定性帯を
+超える `dt_max` でも発散せず完走するが、精度改善を保証しない点がこれらのテストで固定されている。
 
 ---
 
@@ -308,6 +411,8 @@ v5 では `test_adaptive_timestep.py`（7系統・全35件）が追加され、�
 
 ```text
 python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angle=<deg>]
+python range_calc.py --spin=<rpm> [--spin-axis=<deg>] [--v0=<km/h>] [--angle=<deg>]
+python range_calc.py --orbital [--radius=<m>] [--v0=<km/h>] [--adaptive] [--j2] [--atmosphere]
 ```
 
 - `scenario_path`: `data.csv` のパス（省略可）。指定しない場合は同ディレクトリの `data.csv` を読み込む。
@@ -317,6 +422,22 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 - `--angle=<deg>`: 発射角の上書き（単位 °）。書式・省略時の挙動は `--v0` と同じ。
   両オプションともフィールド単位で独立にフォールバックし（引数 → CSV → 既定値）、
   両方指定した場合は `data.csv` を読まない。不正値・`=` なし・重複指定は `SystemExit` で拒否される。
+- `--orbital`: 地表弾道の代わりに中心重力場の軌道を積分する。初期状態は +x 軸上の
+  `--radius` に置かれ、初速は軌道接線方向（`--angle` は無視）となる。`ground_collision=False`
+  で実行され、実行後に軌道要素（`orbital_elements()`）を出力する。摂動フラグを付けない場合は
+  抗力無効・`newtonian_gravity(mu)`（閉軌道）となる。
+- `--radius=<m>`: 軌道モードの初期半径（単位 m）。既定値 `7.0e6` m。`0` 以下は `SystemExit` で拒否される。
+- `--j2`: 軌道モードの重力を `j2_gravity(mu, j2, equatorial_radius)`（扁平摂動つき）にする。
+- `--atmosphere`: 軌道モードの抗力に区分指数大気（`tabulated_density(EARTH_ATMOSPHERE_LAYERS)`）を
+  有効にする。省略時は抗力無効（`drag_coefficient = 0`）で、`--j2` と独立に指定できる。
+- `--spin=<rpm>`: 弾道に Magnus 揚力を加える（§7 item 5）。`0` 以外を指定すると
+  `magnus_lift(DEFAULT_PARAMETERS, spin, axis)` が有効になり、出力に `Spin Rate` /
+  `Spin Axis Angle` と横ずれ `Lateral Drift` が加わる。
+- `--spin-axis=<deg>`: 回転軸を下流軸まわりに傾ける角度（deg）。`0` でバックスピン、
+  `+90` で *+z*、`-90` で *-z*、`±180` でトップスピン。省略時は `0`。`--spin` と併用する。
+
+`parse_args()` は `CliArgs(path, dt_max, adaptive, v0_kmph, angle_deg, spin_rpm, spin_axis_deg, orbital, radius, j2, atmosphere)`
+を返す（`spin_rpm` / `spin_axis_deg` は既定 `0.0`、`j2` と `atmosphere` は既定 `False`）。
 
 適応刻みモードでは、各ステップの刻み幅 `h` は `dt_max` を超えない範囲で安定性上限内に短縮される（縮小のみ）。`FlightResult` には `steps` / `timestep_min` / `timestep_max` が含まれ、CLI 出力には `Integration Steps` および `Shortest Step Taken`（`timestep_min < dt_max` の場合）が表示される。
 
@@ -344,9 +465,9 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 - **Node.js（`webapp` を使う場合のみ）**: 20.19 以上 / 22.12 以上（Vite 8 の要件）と
   npm。起動・ビルドは `webapp/README.md` を参照。物理コアのみを使う場合は不要。
 - **デスクトップ GUI（`desktop` を使う場合のみ）**: 標準ライブラリの Tkinter のみで
-  動作し、追加の `pip` パッケージは不要（単一実行ファイル化のビルド時のみ PyInstaller
+  動作し、追加の `pip` パッケージは不要（実行ファイル化のビルド時のみ PyInstaller
   を使用）。起動・ビルドは `desktop/README.md` を参照。
-- **テスト**: 8.3 節のコマンドを実行し、89 件すべてがパスすることを確認する。
+- **テスト**: 8.3 節のコマンドを実行し、133 件すべてがパスすることを確認する。
   `desktop` のテストは `python3 -m unittest discover -s desktop/tests -p "test_*.py"`
   で実行する（`webapp` との対応漏れ検出を含む。`desktop/PLAN.md` §9 を参照）。
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`（`0 finding(s)` が正常）。
@@ -364,8 +485,7 @@ python range_calc.py [scenario_path] [dt_max] [--adaptive] [--v0=<km/h>] [--angl
 
 ---
 
-*最終更新: 第11章にデスクトップ GUI（`desktop/`、Tkinter）の実行時依存が標準
-ライブラリのみである旨と、そのテストコマンドを追記した（2026-10-10）。前回は §7 の
-野球ボール実測 `Cd` の値域を、自由飛行 0.33–0.36 と風洞実験での低下（例: NPB 0.3
-前後）に補正し、球種別 `Cd` を `parameters.drag_coefficient` で指定できる旨（Web
-アプリのプリセット）を明記した*
+*最終更新: 摂動モデル（J2 扁平 `j2_gravity()`・合成 `sum_fields()`）と高度依存抗力
+（`DensityModel` / `DragModel`、区分指数大気）を §2.2/§6/§7/§9 に追記し、テスト数を 133 に
+更新した（2026-10-17）。前回は第11章にデスクトップ GUI（`desktop/`、Tkinter）の実行時依存が
+標準ライブラリのみである旨と、そのテストコマンドを追記した（2026-10-10）。*
