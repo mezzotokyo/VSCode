@@ -347,13 +347,27 @@ VS Code に Continue 拡張を導入し、`~/.continue/config.yaml` にモデル
 
 ```yaml
 models:
-  - name: Ollama
+  - name: Gemma 4 12B (32K)
     provider: ollama
-    model: qwen3:8b
+    model: gemma4:12b-mlx-32k
     apiBase: http://<サーバーIP>:11434
     roles: [chat, edit, apply]
+    defaultCompletionOptions:
+      contextLength: 32768
+      maxTokens: 8192
+      temperature: 0.2
+  - name: Qwen3 8B (40K)
+    provider: ollama
+    model: qwen3:8b-40k
+    apiBase: http://<サーバーIP>:11434
+    roles: [chat, edit, apply]
+    defaultCompletionOptions:
+      contextLength: 40960
+      maxTokens: 8192
+      temperature: 0.1
 ```
 
+- `defaultCompletionOptions` の `contextLength` はサーバー側エイリアスの `num_ctx`（32K / 40K）に揃え、`maxTokens` は `opencode.json` の `output`（8192）と揃えます。`temperature` はコーディング向けに低め（0.1〜0.2）にします
 - Continue は**インライン補完**にも対応します（小さめのモデルを `roles: [autocomplete]` に割り当てる）
 - VS Code 拡張の Cline / Roo Code / Kilo Code、チャット UI の Open WebUI / LibreChat なども同様に OpenAI 互換エンドポイントを指定できます
 
