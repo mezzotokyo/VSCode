@@ -63,16 +63,16 @@ Ollama** を使用します。LLM プロバイダーは **LAN 内のサーバー
 契約済みのプロバイダーを利用することも可能です。
 
 Ollama は既定で `127.0.0.1:11434` にしかバインドしないため、**LAN 公開には
-`OLLAMA_HOST=0.0.0.0:11434` の設定が必須**です。
-
-- macOS: `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"`（Ollama アプリ再起動）
-- Windows: ユーザー環境変数に `OLLAMA_HOST=0.0.0.0:11434` を追加（Ollama 再起動）
+`OLLAMA_HOST=0.0.0.0:11434` の設定が必須**です。開発クライアントからいつでも
+接続できるよう、サーバーは**常駐化**（macOS: LaunchDaemon ／ Windows: サービス）
+し、`OLLAMA_HOST` は常駐プロセスの環境変数として設定します（ログアウト・再起動後も
+自動起動）。具体的な設定手順は `docs/setup-ollama-server.md` を参照してください。
 
 モデルの取得:
 
 ```sh
-ollama pull gemma4:e4b      # opencode.json の gemma4:e4b-mlx 系のベースモデル
-ollama pull qwen3.5:4b      # qwen3.5:4b-mlx-64k のベースモデル
+ollama pull gemma4:e4b-mlx    # opencode.json の gemma4:e4b-mlx 系のベースモデル
+ollama pull qwen3.5:4b-mlx    # qwen3.5:4b-mlx-64k のベースモデル
 ollama list
 ```
 
