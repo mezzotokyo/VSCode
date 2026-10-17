@@ -310,7 +310,56 @@ ollama list
 - モデル ID はサーバー上の `ollama list` のタグと一致させます
 - 接続には `@ai-sdk/openai-compatible` を使用します
 
-## 5. 疎通確認
+## 5. 他の開発支援ツールからの接続
+
+opencode 以外のツールでも、**OpenAI 互換 API（`http://<サーバーIP>:11434/v1`）** を指定すれば同じサーバーを利用できます。以下は代表例です（モデル ID は `ollama list` のタグに合わせます）。
+
+### Aider（ターミナル CLI）
+
+Ollama のネイティブ provider を使う場合は `ollama_chat/` プレフィックスを付けます。
+
+```sh
+export OLLAMA_API_BASE=http://<サーバーIP>:11434
+aider --model ollama_chat/qwen3:8b
+```
+
+OpenAI 互換 API を使う場合は base URL とダミーのキーを設定します。
+
+```sh
+export OPENAI_API_BASE=http://<サーバーIP>:11434/v1
+export OPENAI_API_KEY=ollama
+aider --model openai/qwen3:8b
+```
+
+### Cline（VS Code 拡張 / CLI）
+
+1. 設定で API Provider に **Ollama**（または **OpenAI Compatible**）を選ぶ
+2. Base URL に `http://<サーバーIP>:11434`（OpenAI Compatible の場合は `http://<サーバーIP>:11434/v1`）を入力
+3. モデル ID に `ollama list` のタグを入力（例: `qwen3:8b`）
+
+CLI 版は `ollama launch cline` で自動設定できます。
+
+### Continue（VS Code / JetBrains 拡張）
+
+VS Code に Continue 拡張を導入し、`~/.continue/config.yaml` にモデルを追加します。
+
+> 本構成（LAN 内の Ollama サーバーへ接続）で、VS Code + Continue の動作を確認済みです。
+
+```yaml
+models:
+  - name: Ollama
+    provider: ollama
+    model: qwen3:8b
+    apiBase: http://<サーバーIP>:11434
+    roles: [chat, edit, apply]
+```
+
+- Continue は**インライン補完**にも対応します（小さめのモデルを `roles: [autocomplete]` に割り当てる）
+- VS Code 拡張の Cline / Roo Code / Kilo Code、チャット UI の Open WebUI / LibreChat なども同様に OpenAI 互換エンドポイントを指定できます
+
+> モデル名は `ollama list` のタグと完全に一致させます。agentic な利用では、tool 呼び出しに対応し、context を 32k〜64k 確保できるモデルを選びます。
+
+## 6. 疎通確認
 
 ### クライアントからの疎通確認
 ```sh
@@ -323,13 +372,13 @@ Windows（PowerShell）では `curl.exe` または `Invoke-RestMethod` を使用
 
 opencode からモデルが選択・利用できることを確認します。
 
-## 6. 切り替え・モデル評価
+## 7. 切り替え・モデル評価
 
 プロバイダを切り替える場合は `opencode.json` の `"model"` を書き換えるか、opencode 起動時のプロバイダ選択で Ollama 側を選びます。
 
 `opencode.json` を編集したら opencode を**リロード**して反映します。
 
-## 7. 参考
+## 8. 参考
 
 - Ollama FAQ（環境変数・ログなど）: <https://docs.ollama.com/faq>
 - モデルライブラリ: <https://ollama.com/library>
