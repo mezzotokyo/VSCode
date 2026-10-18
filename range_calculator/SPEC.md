@@ -145,6 +145,22 @@ dvz/dt = -k · vz · |v|
 
 ### 2.4 軌道要素（`orbital.py`）
 
+### 2.5 多体問題（完全 N 体）
+
+完全 N 体の相互重力は、各天体を点質量として ``mu_i = G*M_i``（:func:`ballistics.newtonian_gravity` と同じ単位系）とする6N元状態で積分する。
+
+```
+a_i = \sum_{j != i} mu_j * (r_j - r_i) / |r_j - r_i|^3,  i=1,...,N
+```
+
+実装: :mod:`nbody`。制約と注意:
+- 点質量モデル（回転・潮汐・変形は考慮しない）。
+- 衝突はモデル化しない。初期・経路上の ``|r_i-r_j| == 0`` は ``SimulationDiverged``（または ``ValueError``）、``min_separation > 0`` を指定すると極接近時にも失敗させる。
+- 固定刻み古典 RK4 を用いる（適応刻みは未実装）。安定性・精度は刻み幅の選択に依存する。
+- RK4 は非シンプレクティックなので長期積分では総エネルギーが漂流する。
+- 診断関数は G=1・質量≡mu の単位系で評価される（定数性のみが物理的に意味を持つ）。
+
+
 ニュートン重力での軌道は、位置 `r`・速度 `v` と中心天体の `mu` から
 **軌道要素**（`OrbitalElements`、`orbital_elements(state, mu)`）として解析的に表せる。
 
@@ -402,7 +418,7 @@ Windows では `python3` の代わりに `python` でもよい（Scoop 構成で
 
 v5 では `test_adaptive_timestep.py`（39件）と `test_orbital.py`（36件、ニュートン/J2 重力場・
 円/楕円軌道・`orbital_elements()`・密度/抗力モデル）が追加され、`range_calculator` 全体で
-133 件となる。適応刻みモード（`adaptive=True`）は、安定性帯内では固定刻みと一致し、安定性帯を
+133 件となる。完全 N 体は `test_nbody.py`（59件）を加えて合計 192 件。適応刻みモード（`adaptive=True`）は、安定性帯内では固定刻みと一致し、安定性帯を
 超える `dt_max` でも発散せず完走するが、精度改善を保証しない点がこれらのテストで固定されている。
 
 ---

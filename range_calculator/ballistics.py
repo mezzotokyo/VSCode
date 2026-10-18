@@ -207,9 +207,10 @@ def j2_gravity(
 def sum_fields(*fields: GravityModel) -> GravityModel:
     """Combine acceleration fields by componentwise addition.
 
-    This is the composition hook for multi-body scenarios: each central body
-    contributes its own field (with its own ``mu``/``j2``) and the summed field
-    can be handed to the integrator unchanged.
+    This is the composition hook for multiple *fixed* centres: each field is
+    evaluated at the same state, so every field source must sit at a fixed
+    position (typically the origin). When the sources themselves move, use
+    :mod:`nbody`, which evaluates each pair at the bodies' current positions.
     """
     def combined(state: State) -> tuple[float, float, float]:
         ax = ay = az = 0.0

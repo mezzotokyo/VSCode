@@ -133,6 +133,17 @@ git add . && git commit -m "init" && git push -u origin main
 
 ### 3.1 基礎方程式
 
+### 3.2 多体問題（相互重力）
+
+`range_calculator/nbody.py` は完全 N 体の相互重力（点質量）を陽的 4 次 RK4 で積分します。各天体は標準重力パラメータ ``mu = G*M`` と状態 ``(x,y,z,vx,vy,vz)`` を持ち、
+
+```text
+a_i = sum_{j != i} mu_j · (r_j - r_i) / |r_j - r_i|^3
+```
+
+を解きます（直接 O(N²)）。点質量・衝突非対応で、長期積分では RK4 のエネルギー漂移に注意が必要です。
+
+
 質量で割った加速度形式の 6 元状態 `(x, y, z, vx, vy, vz)` を陽的 4 次ルンゲ–クッタ（RK4）で
 積分します。重力は鉛直下向き `-y` 方向のみに作用し、横方向 `z` はスピン（Magnus 揚力）による
 左右のずれを表します（スピン 0 では常に 0）。
@@ -243,7 +254,7 @@ python3 desktop/orbital_app.py     # 軌道ウィンドウ
 
 ## 5. 検証・品質
 
-- **物理コアのテスト**: 133 件（`test_range_calc.py` 58 件 + `test_adaptive_timestep.py` 39 件 + `test_orbital.py` 36 件）
+- **物理コアのテスト**: 192 件（`test_range_calc.py` 58 件 + `test_adaptive_timestep.py` 39 件 + `test_orbital.py` 36 件 + `test_nbody.py` 59 件）
   - 解析解（`k=0`）との一致 / 収束性 / 着弾状態 / 回帰 / パラメータ検証 /
     シミュレータ契約 / 数値ガード / Magnus 揚力 / ニュートン・J2 重力 / 軌道要素 / 密度・抗力モデル
 - **desktop のテスト**: 62 件（GUI 純ロジック・軌跡チャート・webapp との対応漏れ検査）

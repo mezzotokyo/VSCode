@@ -609,10 +609,19 @@ V4 が「発散防止であって精度保証ではない」と docstring に書
 `range_calculator` のテストは **89 件 → 110 件**（`test_orbital.py` 18 件と
 `test_adaptive_timestep.py` の CLI テスト追加分を含む）、さらに摂動モデル追加で
 **110 件 → 129 件**、Magnus 追加を含め **133 件**（`test_range_calc.py` に
-`MagnusLiftTests` を追加）。`desktop` は 25 件 → 29 件 → 34 件 → **52 件**、スピン・
+`MagnusLiftTests` を追加）、多体拡張で `test_nbody.py`（59件）を追加し **192 件**（既存133＋59）となった。`desktop` は 25 件 → 29 件 → 34 件 → **52 件**、スピン・
 上面図・画面分離のテストを加え **62 件**（`test_gui_model.py` / `test_trajectory_chart.py` /
 `test_agreement.py`）、webapp/server は 7 件 → 12 件 → **17 件**。
 
 ---
+
+10. **多体問題（完全N体）** — `nbody.py` に相互重力の固定刻み RK4（6N 次元）を追加した。
+    各天体は標準重力パラメータ ``mu = G*M`` と 6 元状態を持ち、加速度は
+    ``a_i = Σ_{j!=i} mu_j (r_j-r_i)/|r_j-r_i|^3``（直接 O(N²)）。積分器は固定刻み RK4（適応刻みなし）。
+    ``mutual_gravity(mus, min_separation)`` と ``system_derivatives``、診断関数
+    ``total_energy``・``linear_momentum``・``angular_momentum``・``center_of_mass``（いずれも G=1・質量≡mu の単位系）、
+    ``NBodySimulator``（``reset``/``resume``・``on_step``・``result``）を実装。非有限状態・初期/経路上の完全一致・
+    ``min_separation`` による極接近ガード、初期速度を基準とした速度発散ガード（全静止時は無効）を備える。
+    点質量・衝突非対応・RK4 は非シンプレクティック（長期エネルギー漂移あり）と明記。
 
 *最終更新: Magnus 揚力・弾道/軌道の画面分離・抗力係数 `Cd` の球体固定（2026-10-17）*
