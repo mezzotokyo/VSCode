@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build the desktop executables with PyInstaller.
 
-Two single-file executables are produced, one per window:
+Three single-file executables are produced, one per window:
 
 * ``range_calculator_ballistic`` from :mod:`ballistic_app`
 * ``range_calculator_orbital`` from :mod:`orbital_app`
+* ``range_calculator_nbody`` from :mod:`nbody_app`
 
 PyInstaller is a build-time tool only; the apps themselves run on the standard
 library. Install it into the active environment first::
@@ -36,6 +37,7 @@ CONFIG_SOURCE = RANGE_CALCULATOR / "config" / "physics_constants.json"
 APPS: tuple[tuple[str, str], ...] = (
     ("range_calculator_ballistic", "ballistic_app.py"),
     ("range_calculator_orbital", "orbital_app.py"),
+    ("range_calculator_nbody", "nbody_app.py"),
 )
 
 

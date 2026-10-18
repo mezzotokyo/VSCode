@@ -241,11 +241,12 @@ cd webapp && npm run dev
 ### 4.3 デスクトップ GUI（`desktop/`）
 
 Python 標準ライブラリの Tkinter（ttk）によるネイティブ GUI。追加の `pip`
-パッケージなしで動作し、PyInstaller で実行ファイル（弾道用・軌道用の 2 つ）をビルドできます。
+パッケージなしで動作し、PyInstaller で実行ファイル（弾道用・軌道用・多体用の 3 つ）をビルドできます。
 
 ```sh
 python3 desktop/ballistic_app.py   # 弾道ウィンドウ
 python3 desktop/orbital_app.py     # 軌道ウィンドウ
+python3 desktop/nbody_app.py       # 多体（N-body）ウィンドウ
 ```
 
 詳細: `desktop/README.md`
@@ -257,7 +258,7 @@ python3 desktop/orbital_app.py     # 軌道ウィンドウ
 - **物理コアのテスト**: 192 件（`test_range_calc.py` 58 件 + `test_adaptive_timestep.py` 39 件 + `test_orbital.py` 36 件 + `test_nbody.py` 59 件）
   - 解析解（`k=0`）との一致 / 収束性 / 着弾状態 / 回帰 / パラメータ検証 /
     シミュレータ契約 / 数値ガード / Magnus 揚力 / ニュートン・J2 重力 / 軌道要素 / 密度・抗力モデル
-- **desktop のテスト**: 62 件（GUI 純ロジック・軌跡チャート・webapp との対応漏れ検査）
+- **desktop のテスト**: 100 件（GUI 純ロジック・軌跡チャート・多体（N-body）ロジック・webapp との対応漏れ検査）
 - **webapp/server のテスト**: 17 件（`gravity_model` / `drag_model` / 軌道要素 / スピン API）
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`
   （`0 finding(s)` が正常。pre-commit フックに組み込み）

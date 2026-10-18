@@ -9,6 +9,11 @@ messages mirror ``webapp/src/lib/sim.ts``. That duplication is intentional (each
 entry point stays self-contained) and is guarded by
 ``desktop/tests/test_agreement.py``, which parses ``sim.ts`` and fails if the
 values or labels ever drift apart. Update both when a preset or message changes.
+
+The N-body section (scenario presets, condition parsing, :func:`run_nbody`) has
+no webapp counterpart: the API exposes only single-body launches, so those
+presets and validation messages are desktop-only and live at the end of this
+module.
 """
 
 from __future__ import annotations
@@ -35,6 +40,12 @@ from ballistics import (  # noqa: E402
     newtonian_gravity,
     orbital_altitude,
     tabulated_density,
+)
+from nbody import (  # noqa: E402
+    Body as NBodyBody,
+    NBodySimulator,
+    SystemState,
+    total_energy,
 )
 from orbital import OrbitalElements, orbital_elements  # noqa: E402
 from physics_config import DEFAULT_PARAMETERS, coerce_parameters  # noqa: E402
@@ -133,6 +144,17 @@ DEFAULT_ORBITAL_METRIC_ROWS: tuple[tuple[str, str, str], ...] = (
     ("flight_time", "積分時間", "-"),
     ("steps", "積分ステップ数", "-"),
     ("timestep", "刻み幅", "-"),
+)
+
+# Placeholder rows for the N-body window before the first run. Kept in sync
+# with :func:`nbody_result_metrics` by ``test_nbody_gui_model``.
+DEFAULT_NBODY_METRIC_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("bodies", "天体数", "-"),
+    ("elapsed", "経過時間", "-"),
+    ("steps", "積分ステップ数", "-"),
+    ("timed_out", "時間上限", "-"),
+    ("energy_drift", "エネルギー相対変化", "-"),
+    ("frames", "記録フレーム数", "-"),
 )
 
 
@@ -561,12 +583,379 @@ def format_decimal(value: float, significant_digits: int = 6) -> str:
     return f"{float(f'{value:.{significant_digits}g}'):g}"
 
 
+# --------------------------------------------------------------- N-body (多体)
+
+# Gravitational constant used to derive mu from bulk density and radius:
+# mu = G * rho * (4/3) pi r^3. Derived mu differs slightly from measured GM
+# values (volume-mean density is an approximation); the GUI trades that
+# precision for physically intuitive, editable inputs.
+NBODY_G = 6.674_30e-11
+
+NBODY_EARTH_MOON_DISTANCE = 384_400_000.0
+NBODY_EARTH_RADIUS = 6_371_000.0
+NBODY_SATELLITE_ALTITUDE = 300_000.0
+# The satellite preset's third body is a test particle: a 1 m sphere of
+# water-like density, so its own gravity stays negligible against Earth/Moon.
+NBODY_SATELLITE_DENSITY = 1000.0
+NBODY_SATELLITE_RADIUS = 1.0
+
+# Body catalogue for the "add body" dropdown and the preset builders:
+# (display name, bulk density kg/m^3, mean radius m) for the Sun, the eight
+# planets, and the Moon. mu is derived from these, never stored.
+NBODY_CATALOG: tuple[tuple[str, float, float], ...] = (
+    ("太陽", 1408.0, 695_700_000.0),
+    ("水星", 5427.0, 2_439_700.0),
+    ("金星", 5243.0, 6_051_800.0),
+    ("地球", 5514.0, 6_371_000.0),
+    ("月", 3344.0, 1_737_400.0),
+    ("火星", 3933.0, 3_389_500.0),
+    ("木星", 1326.0, 69_911_000.0),
+    ("土星", 687.0, 58_232_000.0),
+    ("天王星", 1271.0, 25_362_000.0),
+    ("海王星", 1638.0, 24_622_000.0),
+)
+
+
+def nbody_mu(density: float, radius: float) -> float:
+    """Gravitational parameter mu = G*M (m^3/s^2) from density and radius."""
+    return NBODY_G * density * (4.0 / 3.0) * math.pi * radius**3
+
+
+def _catalog_entry(name: str) -> tuple[float, float]:
+    """(density, radius) of a :data:`NBODY_CATALOG` body; raises ``KeyError``."""
+    for catalog_name, density, radius in NBODY_CATALOG:
+        if catalog_name == name:
+            return density, radius
+    raise KeyError(name)
+
+
+# Dropdown values and labels for the scenario presets.
+NBODY_PRESETS: tuple[tuple[str, str], ...] = (
+    ("earth_moon", "地球–月（2天体）"),
+    ("earth_moon_satellite", "地球–月＋人工衛星（3天体）"),
+)
+
+# Upper bound on the integration steps of one run. A full Earth–Moon period at
+# dt = 60 s needs ~39k steps (< 1 s of wall time); anything beyond this is
+# rejected with a Japanese message instead of freezing the UI for minutes.
+MAX_NBODY_STEPS = 50_000
+
+# Frames are recorded every accepted step and then thinned to this many, so the
+# playback slider stays responsive and each redraw draws a bounded polyline.
+MAX_NBODY_FRAMES = 2000
+
+
+@dataclass(frozen=True)
+class NBodySpec:
+    """One body as entered in the UI: name, bulk density, radius, and state.
+
+    ``mu`` is derived from density and radius (:func:`nbody_mu`) instead of
+    being entered directly, so editing the physical size updates the mass.
+    """
+
+    name: str
+    density: float
+    radius: float
+    state: tuple[float, float, float, float, float, float]
+
+    @property
+    def mu(self) -> float:
+        """Gravitational parameter mu = G*M (m^3/s^2)."""
+        return nbody_mu(self.density, self.radius)
+
+
+@dataclass(frozen=True)
+class NBodyConditions:
+    """The N-body inputs collected from the UI, before running a simulation."""
+
+    bodies: tuple[NBodySpec, ...]
+    dt: float
+    max_time: float
+
+    @property
+    def estimated_steps(self) -> int:
+        """Steps the run will take, ``ceil(max_time / dt)`` (dt is positive)."""
+        return math.ceil(self.max_time / self.dt)
+
+
+@dataclass(frozen=True)
+class NBodyFrame:
+    """One recorded system snapshot: elapsed time and each body's (x, y, z)."""
+
+    t: float
+    positions: tuple[tuple[float, float, float], ...]
+
+
+@dataclass(frozen=True)
+class NBodyOutcome:
+    """A full N-body run: conditions, metrics, and the recorded frames.
+
+    The energy diagnostics use :func:`nbody.total_energy`'s ``G = 1`` units;
+    only the relative drift between the first and last snapshot is displayed.
+    """
+
+    conditions: NBodyConditions
+    elapsed_time: float
+    steps: int
+    timed_out: bool
+    frames: list[NBodyFrame]
+    energy_initial: float
+    energy_final: float
+
+    @property
+    def energy_drift_percent(self) -> float:
+        """Relative change of the total energy over the run, in percent."""
+        baseline = abs(self.energy_initial)
+        if baseline == 0.0:
+            return 0.0
+        return (self.energy_final - self.energy_initial) / baseline * 100.0
+
+
+def _earth_moon_geometry() -> tuple[float, float, float, float]:
+    """Angular rate and barycentric offsets of the circular Earth–Moon preset.
+
+    Returns ``(omega, earth_distance, moon_distance, period)`` for the two
+    bodies placed on the x-axis about their shared centre of mass. The mu
+    values are derived from the catalogue's densities and radii.
+    """
+    earth_mu = nbody_mu(*_catalog_entry("地球"))
+    moon_mu = nbody_mu(*_catalog_entry("月"))
+    total_mu = earth_mu + moon_mu
+    distance = NBODY_EARTH_MOON_DISTANCE
+    omega = math.sqrt(total_mu / distance**3)
+    earth_distance = distance * moon_mu / total_mu
+    moon_distance = distance * earth_mu / total_mu
+    return omega, earth_distance, moon_distance, 2.0 * math.pi / omega
+
+
+def nbody_preset_bodies(preset: str) -> tuple[NBodySpec, ...]:
+    """Bodies of a :data:`NBODY_PRESETS` scenario, ready to edit in the UI.
+
+    Both presets are circular configurations about the centre of mass, so the
+    system stays put instead of drifting off-screen. The satellite preset puts
+    a small test particle in a circular orbit 300 km above Earth's surface.
+    """
+    omega, earth_distance, moon_distance, _period = _earth_moon_geometry()
+    earth_density, earth_radius = _catalog_entry("地球")
+    moon_density, moon_radius = _catalog_entry("月")
+    earth = NBodySpec(
+        name="地球",
+        density=earth_density,
+        radius=earth_radius,
+        state=(
+            -earth_distance, 0.0, 0.0,
+            0.0, -omega * earth_distance, 0.0,
+        ),
+    )
+    moon = NBodySpec(
+        name="月",
+        density=moon_density,
+        radius=moon_radius,
+        state=(
+            moon_distance, 0.0, 0.0,
+            0.0, omega * moon_distance, 0.0,
+        ),
+    )
+    if preset == "earth_moon":
+        return (earth, moon)
+    if preset == "earth_moon_satellite":
+        orbit_radius = earth_radius + NBODY_SATELLITE_ALTITUDE
+        satellite = NBodySpec(
+            name="衛星",
+            density=NBODY_SATELLITE_DENSITY,
+            radius=NBODY_SATELLITE_RADIUS,
+            state=(
+                -earth_distance + orbit_radius, 0.0, 0.0,
+                0.0,
+                -omega * earth_distance
+                - math.sqrt(nbody_mu(earth_density, earth_radius) / orbit_radius),
+                0.0,
+            ),
+        )
+        return (earth, moon, satellite)
+    raise ValueError(f"unknown nbody preset: {preset!r}")
+
+
+def nbody_preset_conditions(preset: str) -> NBodyConditions:
+    """Preset bodies with a scenario-appropriate timestep and time span.
+
+    The Earth–Moon preset integrates one full synodic period at ``dt = 60 s``
+    (~39k steps); the satellite preset needs a finer ``dt = 5 s`` for the fast
+    low orbit and spans six hours.
+    """
+    bodies = nbody_preset_bodies(preset)
+    if preset == "earth_moon":
+        _omega, _earth, _moon, period = _earth_moon_geometry()
+        return NBodyConditions(bodies=bodies, dt=60.0, max_time=period)
+    if preset == "earth_moon_satellite":
+        return NBodyConditions(bodies=bodies, dt=5.0, max_time=6 * 3600.0)
+    raise ValueError(f"unknown nbody preset: {preset!r}")
+
+
+def nbody_number(text: str, label: str) -> float:
+    """Parse one numeric entry, raising a Japanese :class:`ValueError`.
+
+    ``label`` names the field (``"刻み幅 dt"``, ``"天体1 の μ"``, ...) so the
+    message can point at the offending input.
+    """
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} には数値を指定してください。") from None
+    if not math.isfinite(value):
+        raise ValueError(f"{label} には数値を指定してください。")
+    return value
+
+
+# UI row order: display name, density, radius, then the six state components.
+NBodyRow = tuple[str, str, str, str, str, str, str, str, str]
+NBODY_STATE_FIELDS: tuple[str, ...] = ("x", "y", "z", "vx", "vy", "vz")
+
+
+def nbody_conditions_from_rows(
+    rows: list[NBodyRow],
+    dt_text: str,
+    time_text: str,
+) -> NBodyConditions:
+    """Assemble :class:`NBodyConditions` from the raw entry-field strings.
+
+    Raises a Japanese :class:`ValueError` for any unparsable field or an empty
+    body list; an empty body name falls back to ``天体<n>``. Range checks
+    (step budget, duplicate positions) live in :func:`validate_nbody_conditions`.
+    """
+    if not rows:
+        raise ValueError("天体を 1 つ以上指定してください。")
+    bodies: list[NBodySpec] = []
+    for index, row in enumerate(rows):
+        if len(row) != 9:
+            raise ValueError(f"天体{index + 1} の入力欄が不足しています。")
+        label = f"天体{index + 1}"
+        name = row[0].strip() or label
+        density = nbody_number(row[1], f"{label} の体積密度")
+        radius = nbody_number(row[2], f"{label} の半径")
+        values = tuple(
+            nbody_number(row[3 + offset], f"{label} の {field}")
+            for offset, field in enumerate(NBODY_STATE_FIELDS)
+        )
+        bodies.append(
+            NBodySpec(name=name, density=density, radius=radius, state=values)
+        )
+    dt = nbody_number(dt_text, "刻み幅 dt")
+    max_time = nbody_number(time_text, "最大時間")
+    return NBodyConditions(bodies=tuple(bodies), dt=dt, max_time=max_time)
+
+
+def validate_nbody_conditions(conditions: NBodyConditions) -> str | None:
+    """Range checks for parsed conditions, returning a Japanese message or ``None``.
+
+    Mirrors the style of :func:`validate_dt`: the GUI calls this before
+    spawning the worker thread so an impossible run fails fast with a message
+    instead of a long freeze or a core exception.
+    """
+    if conditions.dt <= 0.0:
+        return "刻み幅 dt は正の数で指定してください。"
+    if conditions.max_time <= 0.0:
+        return "最大時間は正の数で指定してください。"
+    for index, body in enumerate(conditions.bodies):
+        if body.density <= 0.0:
+            return f"天体{index + 1} の体積密度は正の数で指定してください。"
+        if body.radius <= 0.0:
+            return f"天体{index + 1} の半径は正の数で指定してください。"
+    steps = conditions.estimated_steps
+    if steps > MAX_NBODY_STEPS:
+        return (
+            f"推定ステップ数 {steps:,} が上限 {MAX_NBODY_STEPS:,} を超えます。"
+            f"刻み幅 dt を大きくするか、最大時間を短くしてください。"
+        )
+    for i in range(len(conditions.bodies)):
+        for j in range(i + 1, len(conditions.bodies)):
+            if conditions.bodies[i].state == conditions.bodies[j].state:
+                return (
+                    f"天体{i + 1} と天体{j + 1} が同じ位置で開始します。"
+                    f"重力が特異になるため開始できません。"
+                )
+    return None
+
+
+def run_nbody(conditions: NBodyConditions) -> NBodyOutcome:
+    """Run one N-body simulation and record every accepted frame.
+
+    Frames are captured through the core's ``on_step`` observation hook (the
+    system tuple is immutable, so a reference can be kept without copying) and
+    thinned to :data:`MAX_NBODY_FRAMES`. Raises whatever the core raises
+    (:class:`SimulationDiverged` or ``ValueError``); the caller localises the
+    message for display.
+    """
+    message = validate_nbody_conditions(conditions)
+    if message is not None:
+        raise ValueError(message)
+    bodies = tuple(NBodyBody(spec.mu, spec.state) for spec in conditions.bodies)
+    simulator = NBodySimulator(
+        bodies, dt=conditions.dt, max_time=conditions.max_time
+    )
+    frames: list[NBodyFrame] = []
+
+    def record(t: float, system: SystemState) -> None:
+        frames.append(
+            NBodyFrame(
+                t=t,
+                positions=tuple(
+                    (state[0], state[1], state[2]) for state in system
+                ),
+            )
+        )
+
+    energy_initial = total_energy(simulator.bodies)
+    simulator.run_simulation(on_step=record)
+    energy_final = total_energy(simulator.bodies)
+    raw = simulator.result()
+    return NBodyOutcome(
+        conditions=conditions,
+        elapsed_time=raw.elapsed_time,
+        steps=raw.steps,
+        timed_out=raw.timed_out,
+        frames=_downsample_frames(frames, MAX_NBODY_FRAMES),
+        energy_initial=energy_initial,
+        energy_final=energy_final,
+    )
+
+
+def nbody_result_metrics(outcome: NBodyOutcome) -> list[tuple[str, str, str]]:
+    """``(key, label, value)`` rows for the N-body results panel."""
+    return [
+        ("bodies", "天体数", str(len(outcome.conditions.bodies))),
+        ("elapsed", "経過時間", f"{format_number(outcome.elapsed_time)} s"),
+        ("steps", "積分ステップ数", str(outcome.steps)),
+        ("timed_out", "時間上限", "yes" if outcome.timed_out else "no"),
+        (
+            "energy_drift",
+            "エネルギー相対変化",
+            f"{format_decimal(outcome.energy_drift_percent)} %",
+        ),
+        ("frames", "記録フレーム数", str(len(outcome.frames))),
+    ]
+
+
+def _downsample_frames(
+    frames: list[NBodyFrame], limit: int
+) -> list[NBodyFrame]:
+    """Thin recorded frames to at most ``limit``, always keeping the last."""
+    if len(frames) <= limit:
+        return frames
+    step = math.ceil(len(frames) / limit)
+    sampled = frames[::step]
+    if sampled[-1] is not frames[-1]:
+        sampled.append(frames[-1])
+    return sampled
+
+
 __all__ = [
     "ANGLE_MAX",
     "ANGLE_MIN",
     "DEFAULT_ADAPTIVE",
     "DEFAULT_ANGLE_DEG",
     "DEFAULT_METRIC_ROWS",
+    "DEFAULT_NBODY_METRIC_ROWS",
     "DEFAULT_ORBITAL_METRIC_ROWS",
     "DEFAULT_ORBITAL_RADIUS",
     "DEFAULT_SPIN_AXIS_DEG",
@@ -582,7 +971,16 @@ __all__ = [
     "GRAVITY_MODELS",
     "GRAVITY_PRESETS",
     "LaunchConditions",
+    "MAX_NBODY_FRAMES",
+    "MAX_NBODY_STEPS",
     "MAX_ORBITAL_STEPS",
+    "NBODY_CATALOG",
+    "NBODY_G",
+    "NBODY_PRESETS",
+    "NBodyConditions",
+    "NBodyFrame",
+    "NBodyOutcome",
+    "NBodySpec",
     "ORBITAL_PERIOD_MARGIN",
     "ORBITAL_SPEED_MAX",
     "ORBITAL_SPEED_MIN",
@@ -605,11 +1003,19 @@ __all__ = [
     "format_optional",
     "gravity_label",
     "make_conditions",
+    "nbody_conditions_from_rows",
+    "nbody_mu",
+    "nbody_number",
+    "nbody_preset_bodies",
+    "nbody_preset_conditions",
+    "nbody_result_metrics",
     "orbital_speed",
     "orbital_time_span",
     "orbital_timestep",
     "preset_label",
     "result_metrics",
+    "run_nbody",
     "simulate",
     "validate_dt",
+    "validate_nbody_conditions",
 ]

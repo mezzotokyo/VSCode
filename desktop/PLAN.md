@@ -69,14 +69,16 @@ desktop/
   app_common.py          # 共有 GUI 基盤（queue / スレッド / メトリクス描画 / スライダー）
   ballistic_app.py       # 弾道ウィンドウ（エントリポイント）
   orbital_app.py         # 軌道ウィンドウ（エントリポイント）
+  nbody_app.py           # 多体（N-body）ウィンドウ（エントリポイント・フレーム再生）
   gui_model.py           # GUI 非依存の純ロジック（プリセット・検証・simulate グルー）
-  trajectory_chart.py    # Canvas 製の軌跡チャート Widget（断面 x–y / 上面 x–z）
+  trajectory_chart.py    # Canvas 製の軌跡チャート Widget（断面 x–y / 上面 x–z / 多体）
   errors.py              # 英語例外→日本語（server.py:67 の localize_error と同型）
-  build.py               # PyInstaller を起動するビルドスクリプト（2 実行ファイル・追跡対象）
+  build.py               # PyInstaller を起動するビルドスクリプト（3 実行ファイル・追跡対象）
   README.md              # 起動・ビルド・mac 手順
   tests/
     test_gui_model.py    # 純ロジックの単体テスト（Tk 不要）
     test_trajectory_chart.py  # 軌跡チャートのスケーリング計算の単体テスト
+    test_nbody_gui_model.py   # 多体ロジック・等倍ドメイン・エラー変換の単体テスト
     test_agreement.py    # server.py / lib/sim.ts との対応漏れ検出
 ```
 
@@ -196,8 +198,8 @@ dt のバリデーション文言（`lib/sim.ts`）も移植する。
 
 | 種別 | コマンド | 期待 |
 |------|----------|------|
-| desktop 純ロジック | `python3 -m unittest discover -s desktop/tests -p "test_*.py"` | 全パス（62 件） |
-| 物理コア（既存） | `python3 -m unittest discover -s range_calculator -p "test_*.py"` | `Ran 133 tests` / `OK` |
+| desktop 純ロジック | `python3 -m unittest discover -s desktop/tests -p "test_*.py"` | 全パス（100 件） |
+| 物理コア（既存） | `python3 -m unittest discover -s range_calculator -p "test_*.py"` | `Ran 192 tests` / `OK` |
 | webapp API | `python3 -m unittest discover -s webapp/server -p "test_*.py"` | `Ran 17 tests` / `OK` |
 | 文字混入検査 | `python3 tools/check_text_hygiene.py` | `0 finding(s)` |
 
@@ -276,4 +278,36 @@ GUI そのものはヘッドレスで検証しにくいため、検証可能な�
 
 ---
 
-*最終更新: 初版作成（2026-10-10）/ 摂動・軌道対応を追記（2026-10-17）*
+## 16. 拡張: 多体（N-body）ウィンドウ
+
+`range_calculator/nbody.py`（相互重力・固定刻み RK4、59 件テスト）に GUI を追加した。
+**デスクトップ専用**で、webapp に対応する画面・API は無い（`test_agreement.py` の
+対象外。`errors.py` の多体パターンも同様にデスクトップのみ）。
+
+- **入力（ハイブリッド）**: プリセット
+  （`gui_model.NBODY_PRESETS`: 地球–月 2 天体 / 地球–月＋人工衛星 3 天体）で
+  初期条件・dt・最大時間を一括入力した後、天体ごとの名前・体積密度・半径・初期状態
+  （x, y, z, vx, vy, vz）と刻み幅・最大時間を**自由入力で編集**できる。
+  天体の追加・削除も可（天体カタログ = 太陽・惑星・月から密度・半径を事前入力）。
+  - **μ の導出**: μ は直接入力せず `nbody_mu(density, radius) = G·ρ·(4/3)πr³` で計算
+    （`NBODY_G = 6.67430e-11`）。実測 GM との誤差は最大 0.13 %（太陽）で許容する。
+  - 地球–月: 重心まわりの円運動（μ / 距離はカタログの密度・半径から導出）、
+    dt=60 s、最大時間=周期 1 回分（約 27.3 日、約 39k ステップ < 1 秒）
+  - 衛星付き: 地球半径+300 km の円軌道テスト粒子（密度 1000 kg/m^3・半径 1 m、
+    μ ≒ 2.8e-7）を追加、dt=5 s、6 時間
+- **記録と再生**: `run_simulation(on_step=record)` で全ステップの
+  `(t, 各天体の x,y,z)` をフレーム記録し、2000 フレームに間引く（`MAX_NBODY_FRAMES`）。
+  完了後、スライダーで任意フレームへシーク、「再生」で約 12 秒のループ再生。
+  ドメインは全フレームから一度だけ計算し、**縦横等倍**（`equal_aspect_domain`）で
+  軌道の形を崩さない（スクロール中の表示ジャンプもしない）。
+- **入力検証**（`validate_nbody_conditions`、日本語メッセージ）: dt / 最大時間は正の数、
+  体積密度・半径は正の数、推定ステップ数の上限 50,000（`MAX_NBODY_STEPS`）、天体の位置重複拒否。
+  コア例外（`SimulationDiverged` 等）は `errors.localize_error` で日本語化して表示。
+- **Result**: 天体数 / 経過時間 / 積分ステップ数 / 時間上限 / エネルギー相対変化
+  （`total_energy` の G=1 単位での相対ドリフトのみ表示）/ 記録フレーム数。
+- スレッド設計は §8 と同一（`app_common.BaseApp` を継承し `_worker` のみ
+  `gui_model.run_nbody` に差し替え）。
+
+---
+
+*最終更新: 初版作成（2026-10-10）/ 摂動・軌道対応を追記（2026-10-17）/ 多体（N-body）ウィンドウを追記（2026-10-18）*
