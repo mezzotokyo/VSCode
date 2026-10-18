@@ -372,6 +372,20 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(gui_model.format_decimal(0.01), "0.01")
         self.assertEqual(gui_model.format_decimal(0.0001), "0.0001")
 
+    def test_format_grouped_inserts_thousands_separators(self) -> None:
+        self.assertEqual(gui_model.format_grouped(213.6), "213.60")
+        self.assertEqual(gui_model.format_grouped(31557600.0), "31,557,600.00")
+        self.assertEqual(gui_model.format_grouped(1755.0, 0), "1,755")
+
+    def test_format_duration_splits_days_hours_minutes_seconds(self) -> None:
+        self.assertEqual(gui_model.format_duration(0.0), "0時間0分0秒")
+        self.assertEqual(gui_model.format_duration(3661.0), "1時間1分1秒")
+        self.assertEqual(gui_model.format_duration(90061.0), "1日1時間1分1秒")
+        self.assertEqual(
+            gui_model.format_duration(31557600.0), "365日6時間0分0秒"
+        )
+        self.assertEqual(gui_model.format_duration(59.6), "0時間1分0秒")
+
 
 class DownsampleTests(unittest.TestCase):
     def test_short_trajectory_is_unchanged(self) -> None:

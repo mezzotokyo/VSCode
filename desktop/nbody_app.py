@@ -1,13 +1,14 @@
 """Desktop GUI for mutual-gravity N-body systems.
 
 This is the third desktop entry point (see :mod:`app_common`). It shows the
-scenario preset (Earth–Moon, or Earth–Moon plus an artificial satellite), the
-per-body inputs (name, bulk density, radius, state) which stay freely editable
-after a preset is loaded, and the timestep / time span. Each body's ``mu`` is
-derived from its density and radius (``mu = G * density * 4/3 pi r^3``) and
-shown read-only; bodies can be added from a catalogue of the Sun, the
-planets, and the Moon. A run is recorded frame by frame and played back with
-a slider under the chart.
+scenario preset (Sun-centred or Earth-centred), the per-body inputs (name,
+bulk density, radius, state) which stay freely editable after a preset is
+loaded, and the timestep / time span. A preset starts from its central body
+alone at the origin at rest; from the second body on, each body can be loaded
+from a catalogue of the Sun, the planets, and the Moon, which seeds a circular
+orbit about the central body. Each body's ``mu`` is derived from its density
+and radius (``mu = G * density * 4/3 pi r^3``) and shown read-only. A run is
+recorded frame by frame and played back with a slider under the chart.
 
 Run it with::
 
@@ -56,18 +57,30 @@ BODY_ENTRY_ROWS: tuple[tuple[str, ...], ...] = (
     ("vx", "vy", "vz"),
 )
 
+# Per-body catalogue dropdown: the catalogue names plus a sentinel that leaves
+# the hand-entered values untouched (used by the central body and by "add").
+CUSTOM_CATALOG_LABEL = "（カスタム）"
+CATALOG_LABELS: tuple[str, ...] = tuple(
+    name for name, _density, _radius, _orbit in gui_model.NBODY_CATALOG
+) + (CUSTOM_CATALOG_LABEL,)
+
 
 class _ScrolledFrame(ttk.Frame):
     """A vertically scrollable container: canvas + scrollbar + inner frame.
 
     The body-input column grows with every added body; without scrolling it
     would eventually push the chart out of the window. The inner frame is the
-    public surface: widgets are packed into ``self.inner`` as usual.
+    public surface: widgets are packed into ``self.inner`` as usual. The canvas
+    keeps a small requested height so the frame stretches to the space it is
+    given (via grid ``weight``) instead of demanding a fixed block that would
+    push the fixed controls below it off-screen.
     """
 
-    def __init__(self, master: tk.Misc) -> None:
+    def __init__(self, master: tk.Misc, height: int = 160) -> None:
         super().__init__(master)
-        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
+        self.canvas = tk.Canvas(
+            self, highlightthickness=0, borderwidth=0, height=height
+        )
         scrollbar = ttk.Scrollbar(
             self, orient="vertical", command=self.canvas.yview
         )
@@ -149,11 +162,10 @@ class NBodyApp(BaseApp):
 
         left = ttk.Frame(body)
         left.grid(row=0, column=0, sticky="nsw", padx=(0, 12))
+        left.columnconfigure(0, weight=1)
         left.rowconfigure(0, weight=1)
 
-        self._controls_scroll = _ScrolledFrame(left)
-        self._controls_scroll.grid(row=0, column=0, sticky="nsw")
-        self._build_controls(self._controls_scroll.inner)
+        self._build_controls(left)
         self._build_results(left)
 
         right = ttk.Frame(body)
@@ -166,10 +178,21 @@ class NBodyApp(BaseApp):
         self._build_playback(right)
 
     def _build_controls(self, parent: ttk.Frame) -> None:
+        # Only the body groups scroll. The preset, the timestep / time span,
+        # the add/remove buttons, and the run button stay pinned in the panel
+        # so they never scroll out of reach however many bodies are configured.
+        # Grid (not pack) keeps the pinned rows at their natural height and
+        # lets the body list absorb any resizing, so shrinking the window
+        # never clips the run button or the error message.
         panel = ttk.LabelFrame(parent, text="N-body conditions", padding=14)
-        panel.pack(fill="both", expand=True)
+        panel.grid(row=0, column=0, sticky="nsew")
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(2, weight=1)
 
-        preset_row = ttk.Frame(panel)
+        top = ttk.Frame(panel)
+        top.grid(row=0, column=0, sticky="ew")
+
+        preset_row = ttk.Frame(top)
         preset_row.pack(fill="x", pady=(0, 8))
         ttk.Label(preset_row, text="プリセット").pack(side="left")
         preset_box = ttk.Combobox(
@@ -182,53 +205,51 @@ class NBodyApp(BaseApp):
         preset_box.pack(side="right")
         preset_box.bind("<<ComboboxSelected>>", self._load_preset)
 
-        dt_row = ttk.Frame(panel)
+        dt_row = ttk.Frame(top)
         dt_row.pack(fill="x")
         ttk.Label(dt_row, text="刻み幅 dt (s)").pack(side="left")
         dt_entry = ttk.Entry(dt_row, textvariable=self._dt_var, width=14)
         dt_entry.pack(side="right")
         dt_entry.bind("<Return>", lambda _event: self._run())
 
-        time_row = ttk.Frame(panel)
+        time_row = ttk.Frame(top)
         time_row.pack(fill="x", pady=(6, 0))
         ttk.Label(time_row, text="最大時間 (s)").pack(side="left")
         time_entry = ttk.Entry(time_row, textvariable=self._time_var, width=14)
         time_entry.pack(side="right")
         time_entry.bind("<Return>", lambda _event: self._run())
 
-        ttk.Label(panel, text="天体").pack(anchor="w", pady=(10, 4))
-        self._bodies_container = ttk.Frame(panel)
-        self._bodies_container.pack(fill="x")
+        ttk.Label(
+            panel, text="天体（天体 1 が中心。2 つ目以降はカタログから選択）"
+        ).grid(row=1, column=0, sticky="w", pady=(10, 4))
 
-        buttons = ttk.Frame(panel)
-        buttons.pack(fill="x", pady=(2, 0))
-        self._catalog_var = tk.StringVar(value=gui_model.NBODY_CATALOG[0][0])
-        catalog_box = ttk.Combobox(
-            buttons,
-            textvariable=self._catalog_var,
-            values=[name for name, _density, _radius in gui_model.NBODY_CATALOG]
-            + ["（カスタム）"],
-            state="readonly",
-            width=10,
-        )
-        catalog_box.pack(side="left")
-        ttk.Button(buttons, text="追加", command=self._add_body).pack(
-            side="left", padx=(6, 0)
+        self._controls_scroll = _ScrolledFrame(panel)
+        self._controls_scroll.grid(row=2, column=0, sticky="nsew")
+        self._bodies_container = self._controls_scroll.inner
+
+        bottom = ttk.Frame(panel)
+        bottom.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+
+        buttons = ttk.Frame(bottom)
+        buttons.pack(fill="x")
+        ttk.Button(buttons, text="天体を追加", command=self._add_body).pack(
+            side="left"
         )
         ttk.Button(
             buttons, text="最後の天体を削除", command=self._remove_body
         ).pack(side="left", padx=(8, 0))
 
         self._run_button = ttk.Button(
-            panel, text=self.run_label, command=self._run
+            bottom, text=self.run_label, command=self._run
         )
         self._run_button.pack(anchor="w", pady=(12, 0))
 
         ttk.Label(
-            panel,
+            bottom,
             textvariable=self._error_var,
             foreground="#b91c1c",
             wraplength=340,
+            justify="left",
         ).pack(anchor="w", pady=(8, 0))
 
     def _build_results(self, parent: ttk.Frame) -> None:
@@ -288,6 +309,9 @@ class NBodyApp(BaseApp):
             "name": tk.StringVar(value=spec.name),
             "density": tk.StringVar(value=repr(spec.density)),
             "radius": tk.StringVar(value=repr(spec.radius)),
+            # Per-body catalogue selector (index >= 1); the sentinel keeps the
+            # hand-entered values, which is also the initial state.
+            "catalog": tk.StringVar(value=CUSTOM_CATALOG_LABEL),
             # Read-only display of the derived mu; kept in sync by traces.
             "mu_display": tk.StringVar(value=f"μ = {spec.mu:.6e} m^3/s^2"),
         }
@@ -315,10 +339,19 @@ class NBodyApp(BaseApp):
         for child in self._bodies_container.winfo_children():
             child.destroy()
         for index, fields in enumerate(self._body_vars):
+            title = "天体 1（中心）" if index == 0 else f"天体 {index + 1}"
             group = ttk.LabelFrame(
-                self._bodies_container, text=f"天体 {index + 1}", padding=8
+                self._bodies_container, text=title, padding=8
             )
             group.pack(fill="x", pady=(0, 6))
+            if index == 0:
+                ttk.Label(
+                    group,
+                    text="中心天体（初期値は座標原点・静止）",
+                    font=("", 9),
+                ).pack(anchor="w", pady=(0, 4))
+            else:
+                self._build_catalog_row(group, index, fields)
             for row_fields in BODY_ENTRY_ROWS:
                 entry_row = ttk.Frame(group)
                 entry_row.pack(fill="x", pady=(0, 4))
@@ -335,27 +368,66 @@ class NBodyApp(BaseApp):
                 group, textvariable=fields["mu_display"], font=("", 9)
             ).pack(anchor="w", pady=(2, 0))
 
+    def _build_catalog_row(
+        self, group: ttk.LabelFrame, index: int, fields: dict[str, tk.StringVar]
+    ) -> None:
+        row = ttk.Frame(group)
+        row.pack(fill="x", pady=(0, 4))
+        ttk.Label(row, text="天体カタログ", font=("", 9)).pack(side="left")
+        catalog_box = ttk.Combobox(
+            row,
+            textvariable=fields["catalog"],
+            values=list(CATALOG_LABELS),
+            state="readonly",
+            width=12,
+        )
+        catalog_box.pack(side="right")
+        catalog_box.bind(
+            "<<ComboboxSelected>>",
+            lambda _event, i=index: self._on_catalog_selected(i),
+        )
+
+    def _on_catalog_selected(self, index: int) -> None:
+        """Load a catalogue body's density/radius and a circular orbit state.
+
+        The body is placed in a circular orbit about the central body (天体 1),
+        whose mu comes from the current density and radius, so an edited centre
+        is honoured. The ``（カスタム）`` sentinel leaves the inputs untouched.
+        """
+        fields = self._body_vars[index]
+        label = fields["catalog"].get()
+        if label == CUSTOM_CATALOG_LABEL or index == 0:
+            return
+        central = self._body_vars[0]
+        try:
+            central_radius = float(central["radius"].get())
+            central_density = float(central["density"].get())
+        except ValueError:
+            self._error_var.set(
+                "天体 1（中心）の体積密度と半径を先に数値で入力してください。"
+            )
+            return
+        _name, _density, body_radius, _orbit = next(
+            entry for entry in gui_model.NBODY_CATALOG if entry[0] == label
+        )
+        central_mu = gui_model.nbody_mu(central_density, central_radius)
+        spec = gui_model.nbody_catalog_spec(
+            label, central_mu, central_radius + body_radius
+        )
+        self._error_var.set("")
+        fields["name"].set(spec.name)
+        fields["density"].set(repr(spec.density))
+        fields["radius"].set(repr(spec.radius))
+        for key, value in zip(gui_model.NBODY_STATE_FIELDS, spec.state):
+            fields[key].set(repr(value))
+
     def _add_body(self) -> None:
-        # Prefill from the body catalogue when a real body is selected; the
-        # (カスタム) entry and unknown labels add an editable blank body.
-        name = f"天体{len(self._body_vars) + 1}"
-        density: float | None = None
-        radius: float | None = None
-        label = self._catalog_var.get()
-        for catalog_name, catalog_density, catalog_radius in (
-            gui_model.NBODY_CATALOG
-        ):
-            if catalog_name == label:
-                name, density, radius = (
-                    catalog_name, catalog_density, catalog_radius
-                )
-                break
-        if density is None or radius is None:
-            density, radius = 1000.0, 1.0
+        # A blank, editable body; the per-body catalogue dropdown then seeds its
+        # density/radius and a circular orbit about the centre on selection.
         spec = gui_model.NBodySpec(
-            name=name,
-            density=density,
-            radius=radius,
+            name=f"天体{len(self._body_vars) + 1}",
+            density=1000.0,
+            radius=1.0,
             state=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         )
         self._body_vars.append(self._fields_from_spec(spec))

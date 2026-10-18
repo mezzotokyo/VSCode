@@ -583,6 +583,24 @@ def format_decimal(value: float, significant_digits: int = 6) -> str:
     return f"{float(f'{value:.{significant_digits}g}'):g}"
 
 
+def format_grouped(value: float, digits: int = 2) -> str:
+    """Fixed-decimal formatting with thousands separators (as ``format_number``)."""
+    return f"{value:,.{digits}f}"
+
+
+def format_duration(seconds: float) -> str:
+    """Decompose a duration in seconds into ``D日H時間M分S秒`` for display.
+
+    Days are omitted when the duration is under one day.
+    """
+    days, remainder = divmod(int(round(seconds)), 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if days:
+        return f"{days:,}日{hours}時間{minutes}分{secs}秒"
+    return f"{hours:,}時間{minutes}分{secs}秒"
+
+
 # --------------------------------------------------------------- N-body (多体)
 
 # Gravitational constant used to derive mu from bulk density and radius:
@@ -591,28 +609,42 @@ def format_decimal(value: float, significant_digits: int = 6) -> str:
 # precision for physically intuitive, editable inputs.
 NBODY_G = 6.674_30e-11
 
-NBODY_EARTH_MOON_DISTANCE = 384_400_000.0
-NBODY_EARTH_RADIUS = 6_371_000.0
-NBODY_SATELLITE_ALTITUDE = 300_000.0
-# The satellite preset's third body is a test particle: a 1 m sphere of
-# water-like density, so its own gravity stays negligible against Earth/Moon.
-NBODY_SATELLITE_DENSITY = 1000.0
-NBODY_SATELLITE_RADIUS = 1.0
+# Preset centres: the first body is the central body, placed at the origin at
+# rest; the remaining bodies are added from the catalogue on a circular orbit
+# about it. The presets themselves only fix the centre, so a scenario starts
+# with one body instead of a full configuration the user did not ask for.
+NBODY_PRESET_CENTERS: dict[str, str] = {
+    "sun_centered": "太陽",
+    "earth_centered": "地球",
+}
 
-# Body catalogue for the "add body" dropdown and the preset builders:
-# (display name, bulk density kg/m^3, mean radius m) for the Sun, the eight
-# planets, and the Moon. mu is derived from these, never stored.
-NBODY_CATALOG: tuple[tuple[str, float, float], ...] = (
-    ("太陽", 1408.0, 695_700_000.0),
-    ("水星", 5427.0, 2_439_700.0),
-    ("金星", 5243.0, 6_051_800.0),
-    ("地球", 5514.0, 6_371_000.0),
-    ("月", 3344.0, 1_737_400.0),
-    ("火星", 3933.0, 3_389_500.0),
-    ("木星", 1326.0, 69_911_000.0),
-    ("土星", 687.0, 58_232_000.0),
-    ("天王星", 1271.0, 25_362_000.0),
-    ("海王星", 1638.0, 24_622_000.0),
+# Default timestep and time span per preset. The Sun-centred preset integrates
+# one Earth year at dt = 3600 s (inner planets resolve well); the Earth-centred
+# preset integrates one lunar period at dt = 60 s (a low orbit wants a finer dt).
+SUN_CENTERED_DT = 3600.0
+SUN_CENTERED_MAX_TIME = 365.25 * 86400.0
+EARTH_CENTERED_DT = 60.0
+EARTH_CENTERED_MAX_TIME = 27.321_661 * 86400.0
+
+# Body catalogue for the per-body selector and the preset centre:
+# (display name, bulk density kg/m^3, mean radius m, default orbital radius m)
+# for the Sun, the eight planets, and the Moon. mu is derived from the density
+# and radius, never stored. The default orbital radius is the body's mean
+# distance from its natural primary (heliocentric for the planets, geocentric
+# for the Moon; the Sun's value is its distance from Earth, used when the Sun
+# is added around another centre). Selecting a body loads these into the
+# inputs, which stay freely editable afterwards.
+NBODY_CATALOG: tuple[tuple[str, float, float, float], ...] = (
+    ("太陽", 1408.0, 695_700_000.0, 1.496e11),
+    ("水星", 5427.0, 2_439_700.0, 5.791e10),
+    ("金星", 5243.0, 6_051_800.0, 1.082e11),
+    ("地球", 5514.0, 6_371_000.0, 1.496e11),
+    ("月", 3344.0, 1_737_400.0, 3.844e8),
+    ("火星", 3933.0, 3_389_500.0, 2.279e11),
+    ("木星", 1326.0, 69_911_000.0, 7.785e11),
+    ("土星", 687.0, 58_232_000.0, 1.434e12),
+    ("天王星", 1271.0, 25_362_000.0, 2.871e12),
+    ("海王星", 1638.0, 24_622_000.0, 4.495e12),
 )
 
 
@@ -621,23 +653,23 @@ def nbody_mu(density: float, radius: float) -> float:
     return NBODY_G * density * (4.0 / 3.0) * math.pi * radius**3
 
 
-def _catalog_entry(name: str) -> tuple[float, float]:
-    """(density, radius) of a :data:`NBODY_CATALOG` body; raises ``KeyError``."""
-    for catalog_name, density, radius in NBODY_CATALOG:
+def _catalog_entry(name: str) -> tuple[float, float, float]:
+    """(density, radius, orbit_radius) of a body; raises ``KeyError``."""
+    for catalog_name, density, radius, orbit_radius in NBODY_CATALOG:
         if catalog_name == name:
-            return density, radius
+            return density, radius, orbit_radius
     raise KeyError(name)
 
 
 # Dropdown values and labels for the scenario presets.
 NBODY_PRESETS: tuple[tuple[str, str], ...] = (
-    ("earth_moon", "地球–月（2天体）"),
-    ("earth_moon_satellite", "地球–月＋人工衛星（3天体）"),
+    ("sun_centered", "太陽を中心とした多体問題"),
+    ("earth_centered", "地球を中心とした多体問題"),
 )
 
-# Upper bound on the integration steps of one run. A full Earth–Moon period at
-# dt = 60 s needs ~39k steps (< 1 s of wall time); anything beyond this is
-# rejected with a Japanese message instead of freezing the UI for minutes.
+# Upper bound on the integration steps of one run. One lunar period at dt = 60 s
+# needs ~39k steps (< 1 s of wall time); anything beyond this is rejected with a
+# Japanese message instead of freezing the UI for minutes.
 MAX_NBODY_STEPS = 50_000
 
 # Frames are recorded every accepted step and then thinned to this many, so the
@@ -711,84 +743,81 @@ class NBodyOutcome:
         return (self.energy_final - self.energy_initial) / baseline * 100.0
 
 
-def _earth_moon_geometry() -> tuple[float, float, float, float]:
-    """Angular rate and barycentric offsets of the circular Earth–Moon preset.
+def nbody_circular_state(
+    orbit_radius: float, central_mu: float
+) -> tuple[float, float, float, float, float, float]:
+    """State of a circular orbit of radius ``orbit_radius`` about a body.
 
-    Returns ``(omega, earth_distance, moon_distance, period)`` for the two
-    bodies placed on the x-axis about their shared centre of mass. The mu
-    values are derived from the catalogue's densities and radii.
+    The body sits on the +x axis moving in +y at the circular speed
+    ``sqrt(central_mu / orbit_radius)``. Raises ``ValueError`` when the radius
+    is not positive (the speed would be undefined or imaginary).
     """
-    earth_mu = nbody_mu(*_catalog_entry("地球"))
-    moon_mu = nbody_mu(*_catalog_entry("月"))
-    total_mu = earth_mu + moon_mu
-    distance = NBODY_EARTH_MOON_DISTANCE
-    omega = math.sqrt(total_mu / distance**3)
-    earth_distance = distance * moon_mu / total_mu
-    moon_distance = distance * earth_mu / total_mu
-    return omega, earth_distance, moon_distance, 2.0 * math.pi / omega
+    if orbit_radius <= 0.0:
+        raise ValueError("orbit_radius must be greater than 0")
+    return (
+        orbit_radius, 0.0, 0.0,
+        0.0, math.sqrt(central_mu / orbit_radius), 0.0,
+    )
+
+
+def nbody_catalog_spec(
+    name: str, central_mu: float, min_separation: float = 0.0
+) -> NBodySpec:
+    """Catalogue body ``name`` on a circular orbit about a central body.
+
+    The catalogue's default orbital radius seeds the state; ``min_separation``
+    (typically the sum of the central and body radii) keeps the body clear of
+    the centre. Raises ``KeyError`` for an unknown name.
+    """
+    density, radius, orbit_radius = _catalog_entry(name)
+    separation = max(orbit_radius, min_separation)
+    return NBodySpec(
+        name=name,
+        density=density,
+        radius=radius,
+        state=nbody_circular_state(separation, central_mu),
+    )
 
 
 def nbody_preset_bodies(preset: str) -> tuple[NBodySpec, ...]:
-    """Bodies of a :data:`NBODY_PRESETS` scenario, ready to edit in the UI.
+    """Central body of a :data:`NBODY_PRESETS` scenario, at the origin at rest.
 
-    Both presets are circular configurations about the centre of mass, so the
-    system stays put instead of drifting off-screen. The satellite preset puts
-    a small test particle in a circular orbit 300 km above Earth's surface.
+    The preset only fixes the centre (the Sun or the Earth); the remaining
+    bodies are added from the catalogue in the UI. Starting from the centre
+    alone keeps the scenario at the centre of mass (nothing drifts) until the
+    user adds a body of their choosing.
     """
-    omega, earth_distance, moon_distance, _period = _earth_moon_geometry()
-    earth_density, earth_radius = _catalog_entry("地球")
-    moon_density, moon_radius = _catalog_entry("月")
-    earth = NBodySpec(
-        name="地球",
-        density=earth_density,
-        radius=earth_radius,
-        state=(
-            -earth_distance, 0.0, 0.0,
-            0.0, -omega * earth_distance, 0.0,
+    try:
+        name = NBODY_PRESET_CENTERS[preset]
+    except KeyError:
+        raise ValueError(f"unknown nbody preset: {preset!r}") from None
+    density, radius, _orbit_radius = _catalog_entry(name)
+    return (
+        NBodySpec(
+            name=name,
+            density=density,
+            radius=radius,
+            state=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         ),
     )
-    moon = NBodySpec(
-        name="月",
-        density=moon_density,
-        radius=moon_radius,
-        state=(
-            moon_distance, 0.0, 0.0,
-            0.0, omega * moon_distance, 0.0,
-        ),
-    )
-    if preset == "earth_moon":
-        return (earth, moon)
-    if preset == "earth_moon_satellite":
-        orbit_radius = earth_radius + NBODY_SATELLITE_ALTITUDE
-        satellite = NBodySpec(
-            name="衛星",
-            density=NBODY_SATELLITE_DENSITY,
-            radius=NBODY_SATELLITE_RADIUS,
-            state=(
-                -earth_distance + orbit_radius, 0.0, 0.0,
-                0.0,
-                -omega * earth_distance
-                - math.sqrt(nbody_mu(earth_density, earth_radius) / orbit_radius),
-                0.0,
-            ),
-        )
-        return (earth, moon, satellite)
-    raise ValueError(f"unknown nbody preset: {preset!r}")
 
 
 def nbody_preset_conditions(preset: str) -> NBodyConditions:
-    """Preset bodies with a scenario-appropriate timestep and time span.
+    """Preset centre with a scenario-appropriate timestep and time span.
 
-    The Earth–Moon preset integrates one full synodic period at ``dt = 60 s``
-    (~39k steps); the satellite preset needs a finer ``dt = 5 s`` for the fast
-    low orbit and spans six hours.
+    The Sun-centred preset integrates one Earth year at ``dt = 3600 s``; the
+    Earth-centred preset integrates one lunar period at ``dt = 60 s`` (~39k
+    steps, under :data:`MAX_NBODY_STEPS`).
     """
     bodies = nbody_preset_bodies(preset)
-    if preset == "earth_moon":
-        _omega, _earth, _moon, period = _earth_moon_geometry()
-        return NBodyConditions(bodies=bodies, dt=60.0, max_time=period)
-    if preset == "earth_moon_satellite":
-        return NBodyConditions(bodies=bodies, dt=5.0, max_time=6 * 3600.0)
+    if preset == "sun_centered":
+        return NBodyConditions(
+            bodies=bodies, dt=SUN_CENTERED_DT, max_time=SUN_CENTERED_MAX_TIME
+        )
+    if preset == "earth_centered":
+        return NBodyConditions(
+            bodies=bodies, dt=EARTH_CENTERED_DT, max_time=EARTH_CENTERED_MAX_TIME
+        )
     raise ValueError(f"unknown nbody preset: {preset!r}")
 
 
@@ -924,15 +953,20 @@ def nbody_result_metrics(outcome: NBodyOutcome) -> list[tuple[str, str, str]]:
     """``(key, label, value)`` rows for the N-body results panel."""
     return [
         ("bodies", "天体数", str(len(outcome.conditions.bodies))),
-        ("elapsed", "経過時間", f"{format_number(outcome.elapsed_time)} s"),
-        ("steps", "積分ステップ数", str(outcome.steps)),
+        (
+            "elapsed",
+            "経過時間",
+            f"{format_grouped(outcome.elapsed_time)} s"
+            f"（{format_duration(outcome.elapsed_time)}）",
+        ),
+        ("steps", "積分ステップ数", f"{outcome.steps:,}"),
         ("timed_out", "時間上限", "yes" if outcome.timed_out else "no"),
         (
             "energy_drift",
             "エネルギー相対変化",
             f"{format_decimal(outcome.energy_drift_percent)} %",
         ),
-        ("frames", "記録フレーム数", str(len(outcome.frames))),
+        ("frames", "記録フレーム数", f"{len(outcome.frames):,}"),
     ]
 
 
@@ -999,10 +1033,14 @@ __all__ = [
     "VELOCITY_MIN",
     "density_label",
     "format_decimal",
+    "format_duration",
+    "format_grouped",
     "format_number",
     "format_optional",
     "gravity_label",
     "make_conditions",
+    "nbody_catalog_spec",
+    "nbody_circular_state",
     "nbody_conditions_from_rows",
     "nbody_mu",
     "nbody_number",

@@ -33,40 +33,39 @@ def spec(
     return NBodySpec(name=name, density=density, radius=radius, state=state)
 
 
+def sun_earth_conditions(
+    dt: float = 3600.0, max_time: float | None = None
+) -> NBodyConditions:
+    """A Sun-centred system with Earth on a circular orbit, for the run tests."""
+    sun = gui_model.nbody_preset_bodies("sun_centered")[0]
+    earth = gui_model.nbody_catalog_spec(
+        "地球", sun.mu, sun.radius + 6_371_000.0
+    )
+    if max_time is None:
+        max_time = 365.25 * 86400.0
+    return NBodyConditions(bodies=(sun, earth), dt=dt, max_time=max_time)
+
+
 class PresetTests(unittest.TestCase):
     def test_preset_values_and_labels(self) -> None:
         self.assertEqual(
             gui_model.NBODY_PRESETS,
             (
-                ("earth_moon", "地球–月（2天体）"),
-                ("earth_moon_satellite", "地球–月＋人工衛星（3天体）"),
+                ("sun_centered", "太陽を中心とした多体問題"),
+                ("earth_centered", "地球を中心とした多体問題"),
             ),
         )
 
-    def test_earth_moon_is_circular_about_the_barycentre(self) -> None:
-        bodies = gui_model.nbody_preset_bodies("earth_moon")
-        self.assertEqual([body.name for body in bodies], ["地球", "月"])
-        for body in bodies:
-            self.assertGreater(body.mu, 0.0)
-        # The centre of mass sits at the origin: opposite sides, mu-weighted.
-        earth, moon = bodies
-        self.assertAlmostEqual(
-            earth.state[0], -moon.state[0] * moon.mu / earth.mu, delta=1e-6
-        )
-        self.assertLess(earth.state[0], 0.0)
-        self.assertGreater(moon.state[0], 0.0)
-        # Both bodies orbit (non-zero velocities in opposite directions).
-        self.assertNotEqual(earth.state[4], 0.0)
-        self.assertNotEqual(moon.state[4], 0.0)
-        self.assertLess(earth.state[4] * moon.state[4], 0.0)
-
-    def test_satellite_preset_adds_a_circular_low_orbit(self) -> None:
-        bodies = gui_model.nbody_preset_bodies("earth_moon_satellite")
-        self.assertEqual(len(bodies), 3)
-        earth, _moon, satellite = bodies
-        separation = math.dist(earth.state[:3], satellite.state[:3])
-        expected = gui_model.NBODY_EARTH_RADIUS + gui_model.NBODY_SATELLITE_ALTITUDE
-        self.assertAlmostEqual(separation, expected, delta=1.0)
+    def test_presets_start_from_the_central_body_only(self) -> None:
+        sun = gui_model.nbody_preset_bodies("sun_centered")
+        earth = gui_model.nbody_preset_bodies("earth_centered")
+        self.assertEqual([body.name for body in sun], ["太陽"])
+        self.assertEqual([body.name for body in earth], ["地球"])
+        for bodies in (sun, earth):
+            body = bodies[0]
+            with self.subTest(body=body.name):
+                self.assertGreater(body.mu, 0.0)
+                self.assertEqual(body.state, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
     def test_preset_conditions_validate_and_stay_within_the_step_budget(self) -> None:
         for value, _label in gui_model.NBODY_PRESETS:
@@ -77,22 +76,58 @@ class PresetTests(unittest.TestCase):
                     conditions.estimated_steps, gui_model.MAX_NBODY_STEPS
                 )
 
-    def test_earth_moon_preset_covers_one_period(self) -> None:
-        conditions = gui_model.nbody_preset_conditions("earth_moon")
-        period_days = conditions.max_time / 86400.0
-        self.assertAlmostEqual(period_days, 27.3, delta=0.1)
-        self.assertEqual(conditions.dt, 60.0)
+    def test_sun_centered_preset_spans_one_earth_year(self) -> None:
+        conditions = gui_model.nbody_preset_conditions("sun_centered")
+        self.assertEqual(conditions.dt, gui_model.SUN_CENTERED_DT)
+        self.assertEqual(conditions.max_time, gui_model.SUN_CENTERED_MAX_TIME)
+        self.assertAlmostEqual(conditions.max_time / 86400.0, 365.25, delta=0.01)
 
-    def test_satellite_preset_six_hours_at_fine_timestep(self) -> None:
-        conditions = gui_model.nbody_preset_conditions("earth_moon_satellite")
-        self.assertEqual(conditions.dt, 5.0)
-        self.assertEqual(conditions.max_time, 6 * 3600.0)
+    def test_earth_centered_preset_spans_one_lunar_period(self) -> None:
+        conditions = gui_model.nbody_preset_conditions("earth_centered")
+        self.assertEqual(conditions.dt, gui_model.EARTH_CENTERED_DT)
+        self.assertAlmostEqual(conditions.max_time / 86400.0, 27.32, delta=0.1)
 
     def test_unknown_preset_raises(self) -> None:
         with self.assertRaises(ValueError):
             gui_model.nbody_preset_bodies("unknown")
         with self.assertRaises(ValueError):
             gui_model.nbody_preset_conditions("unknown")
+
+
+class CircularOrbitTests(unittest.TestCase):
+    def test_circular_state_uses_the_central_mu(self) -> None:
+        central_mu = 3.986_004_418e14
+        state = gui_model.nbody_circular_state(7.0e6, central_mu)
+        self.assertEqual(state[:3], (7.0e6, 0.0, 0.0))
+        self.assertEqual(state[3], 0.0)
+        self.assertAlmostEqual(state[4], math.sqrt(central_mu / 7.0e6))
+        self.assertGreater(state[4], 0.0)
+        self.assertEqual(state[5], 0.0)
+
+    def test_circular_state_rejects_a_non_positive_radius(self) -> None:
+        for radius in (0.0, -1.0):
+            with self.subTest(radius=radius):
+                with self.assertRaises(ValueError):
+                    gui_model.nbody_circular_state(radius, 1.0)
+
+    def test_catalog_spec_seeds_density_radius_and_circular_speed(self) -> None:
+        central_mu = gui_model.nbody_mu(1408.0, 695_700_000.0)
+        _name, density, radius, orbit = next(
+            entry for entry in gui_model.NBODY_CATALOG if entry[0] == "地球"
+        )
+        body = gui_model.nbody_catalog_spec("地球", central_mu)
+        self.assertEqual(body.name, "地球")
+        self.assertEqual(body.density, density)
+        self.assertEqual(body.radius, radius)
+        self.assertAlmostEqual(body.state[0], orbit)
+        self.assertAlmostEqual(body.state[4], math.sqrt(central_mu / orbit))
+
+    def test_catalog_spec_keeps_the_body_clear_of_the_centre(self) -> None:
+        central_mu = gui_model.nbody_mu(1408.0, 695_700_000.0)
+        # The Moon's default is its geocentric distance, inside the Sun's radius.
+        min_separation = 7.0e8
+        body = gui_model.nbody_catalog_spec("月", central_mu, min_separation)
+        self.assertGreaterEqual(body.state[0], min_separation)
 
 
 class BodyCatalogTests(unittest.TestCase):
@@ -112,7 +147,7 @@ class BodyCatalogTests(unittest.TestCase):
     }
 
     def test_catalog_is_the_sun_planets_and_moon(self) -> None:
-        names = [name for name, _d, _r in gui_model.NBODY_CATALOG]
+        names = [name for name, _d, _r, _o in gui_model.NBODY_CATALOG]
         self.assertEqual(
             names,
             ["太陽", "水星", "金星", "地球", "月", "火星", "木星", "土星", "天王星", "海王星"],
@@ -120,19 +155,30 @@ class BodyCatalogTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
 
     def test_catalog_entries_are_positive(self) -> None:
-        for name, density, radius in gui_model.NBODY_CATALOG:
+        for name, density, radius, orbit in gui_model.NBODY_CATALOG:
             with self.subTest(body=name):
                 self.assertGreater(density, 0.0)
                 self.assertGreater(radius, 0.0)
+                self.assertGreater(orbit, 0.0)
 
     def test_derived_mu_matches_measured_values_closely(self) -> None:
         # Volume-mean density is an approximation; the GUI accepts a small
         # error against measured GM (see the module docstring in gui_model).
-        for name, density, radius in gui_model.NBODY_CATALOG:
+        for name, density, radius, _orbit in gui_model.NBODY_CATALOG:
             with self.subTest(body=name):
                 mu = gui_model.nbody_mu(density, radius)
                 expected = self.MEASURED_MU[name]
                 self.assertLess(abs(mu - expected) / expected, 0.005)
+
+    def test_default_orbital_radii_increase_outward(self) -> None:
+        orbits = {
+            name: orbit for name, _d, _r, orbit in gui_model.NBODY_CATALOG
+        }
+        order = ["水星", "金星", "地球", "火星", "木星", "土星", "天王星", "海王星"]
+        radii = [orbits[name] for name in order]
+        self.assertEqual(radii, sorted(radii))
+        # The Moon's default is its geocentric distance, inside the planets.
+        self.assertLess(orbits["月"], orbits["水星"])
 
     def test_mu_formula(self) -> None:
         expected = gui_model.NBODY_G * 5514.0 * (4.0 / 3.0) * math.pi * 6_371_000.0**3
@@ -299,11 +345,11 @@ class ValidateConditionsTests(unittest.TestCase):
 
 
 class RunNBodyTests(unittest.TestCase):
-    """The Earth–Moon preset run, shared by the assertions below."""
+    """A Sun-centred two-body run, shared by the assertions below."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.conditions = gui_model.nbody_preset_conditions("earth_moon")
+        cls.conditions = sun_earth_conditions()
         cls.outcome = gui_model.run_nbody(cls.conditions)
 
     def test_run_reaches_the_time_limit(self) -> None:
@@ -334,11 +380,19 @@ class RunNBodyTests(unittest.TestCase):
     def test_energy_is_conserved_over_the_run(self) -> None:
         self.assertLess(abs(self.outcome.energy_drift_percent), 1e-9)
 
-    def test_satellite_preset_records_three_bodies(self) -> None:
-        conditions = gui_model.nbody_preset_conditions("earth_moon_satellite")
+    def test_moon_around_earth_records_two_bodies(self) -> None:
+        earth = gui_model.nbody_preset_bodies("earth_centered")[0]
+        moon = gui_model.nbody_catalog_spec(
+            "月", earth.mu, earth.radius + 1_737_400.0
+        )
+        conditions = NBodyConditions(
+            bodies=(earth, moon),
+            dt=gui_model.EARTH_CENTERED_DT,
+            max_time=gui_model.EARTH_CENTERED_MAX_TIME,
+        )
         outcome = gui_model.run_nbody(conditions)
         self.assertTrue(outcome.timed_out)
-        self.assertEqual(len(outcome.frames[0].positions), 3)
+        self.assertEqual(len(outcome.frames[0].positions), 2)
         self.assertLess(abs(outcome.energy_drift_percent), 1e-9)
 
     def test_invalid_conditions_are_rejected_before_integrating(self) -> None:
@@ -351,8 +405,7 @@ class RunNBodyTests(unittest.TestCase):
 class NBodyMetricsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        conditions = gui_model.nbody_preset_conditions("earth_moon_satellite")
-        cls.outcome = gui_model.run_nbody(conditions)
+        cls.outcome = gui_model.run_nbody(sun_earth_conditions())
 
     def test_metric_rows_match_the_placeholder_keys(self) -> None:
         default_keys = [row[0] for row in gui_model.DEFAULT_NBODY_METRIC_ROWS]
@@ -370,11 +423,13 @@ class NBodyMetricsTests(unittest.TestCase):
             (key, value)
             for key, _label, value in gui_model.nbody_result_metrics(self.outcome)
         )
-        self.assertEqual(values["bodies"], "3")
+        self.assertEqual(values["bodies"], "2")
         self.assertEqual(values["timed_out"], "yes")
-        self.assertEqual(values["steps"], "4320")
-        self.assertEqual(values["frames"], str(len(self.outcome.frames)))
-        self.assertTrue(values["elapsed"].endswith(" s"))
+        self.assertEqual(values["steps"], "8,766")
+        self.assertEqual(values["frames"], f"{len(self.outcome.frames):,}")
+        # Elapsed shows comma-grouped seconds plus a days/hours/minutes form.
+        self.assertIn("31,557,600.00 s", values["elapsed"])
+        self.assertIn("365日6時間0分0秒", values["elapsed"])
         self.assertTrue(values["energy_drift"].endswith(" %"))
 
 
