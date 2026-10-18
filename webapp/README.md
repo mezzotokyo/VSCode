@@ -1,9 +1,12 @@
 # Range Calculator Web (webapp)
 
-`range_calculator` の弾道シミュレーションをブラウザで操作・可視化する Web アプリです。
-フロントエンドは Vite + React + TypeScript、バックエンドは Python 標準ライブラリのみの
-JSON API で構成され、物理計算は既存の `range_calculator`（`ballistics` / `physics_config`）を
-そのまま再利用します。
+`range_calculator` の物理シミュレーション（**弾道・軌道**）をブラウザで操作・可視化する
+Web アプリです。フロントエンドは Vite + React + TypeScript、バックエンドは Python 標準ライブラリのみの
+JSON API で構成され、物理計算は既存の `range_calculator`（`ballistics` / `orbital` /
+`physics_config`）をそのまま再利用します。
+
+多体（N 体）は Web アプリの対象外です。操作したい場合は `desktop/nbody_app.py` を
+使ってください（`desktop/PLAN.md` §16）。
 
 ---
 
@@ -41,7 +44,7 @@ JSON API で構成され、物理計算は既存の `range_calculator`（`ballis
 
 抗力係数 `Cd` は既定プロファイルの球体代表値 `0.47` に固定しており、UI からは変更できません。
 `parameters.drag_coefficient` として `0.47` を API に送信します。プリセット選択は廃止しました
-（`range_calculator/SPEC.md` §7）。
+（`range_calculator/SPEC.md` 第14章）。
 
 「シミュレーション実行」ボタンで API を呼び出します。実行のたびに Result と軌跡は
 クリアされ、結果が得られた時点で表示されます。エラー時は Result を表示せず、
@@ -302,7 +305,7 @@ pkill -f "server/server.py" || true
 8. エラー時は Result を表示せず、日本語のエラーメッセージを表示する。
 
 `adaptive` は刻みを安定性上限内に**短縮**する発散防止機構であり、精度向上を保証する
-ものではありません（詳細は `range_calculator/SPEC.md` 第4章）。
+ものではありません（詳細は `range_calculator/SPEC.md` 第3章）。
 
 ---
 
