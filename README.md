@@ -63,16 +63,16 @@ Ollama** を使用します。LLM プロバイダーは **LAN 内のサーバー
 契約済みのプロバイダーを利用することも可能です。
 
 Ollama は既定で `127.0.0.1:11434` にしかバインドしないため、**LAN 公開には
-`OLLAMA_HOST=0.0.0.0:11434` の設定が必須**です。
-
-- macOS: `launchctl setenv OLLAMA_HOST "0.0.0.0:11434"`（Ollama アプリ再起動）
-- Windows: ユーザー環境変数に `OLLAMA_HOST=0.0.0.0:11434` を追加（Ollama 再起動）
+`OLLAMA_HOST=0.0.0.0:11434` の設定が必須**です。開発クライアントからいつでも
+接続できるよう、サーバーは**常駐化**（macOS: LaunchDaemon ／ Windows: サービス）
+し、`OLLAMA_HOST` は常駐プロセスの環境変数として設定します（ログアウト・再起動後も
+自動起動）。具体的な設定手順は `docs/setup-ollama-server.md` を参照してください。
 
 モデルの取得:
 
 ```sh
-ollama pull gemma4:e4b      # opencode.json の gemma4:e4b-mlx 系のベースモデル
-ollama pull qwen3.5:4b      # qwen3.5:4b-mlx-64k のベースモデル
+ollama pull gemma4:e4b-mlx    # opencode.json の gemma4:e4b-mlx 系のベースモデル
+ollama pull qwen3.5:4b-mlx    # qwen3.5:4b-mlx-64k のベースモデル
 ollama list
 ```
 
@@ -287,9 +287,24 @@ python3 tools/check_text_hygiene.py
 | `docs/setup-machine.md` | 環境構築（macOS / Linux / 共通） |
 | `docs/setup-windows.md` | 環境構築（Windows 11 / Scoop） |
 | `docs/setup-ollama-server.md` | Ollama 推論サーバー構築（opencode 接続用） |
+| `LICENSE` | ライセンス全文（MIT） |
+| `THIRD_PARTY_NOTICES.md` | 依存コンポーネントのライセンス・配布時の注意 |
 
 ---
 
 ## 7. ライセンス
 
-記載なし（プライベートリポジトリ）。詳細はリポジトリ管理者に確認してください。
+本リポジトリは **MIT License** の下で公開されています。全文は [`LICENSE`](LICENSE) を参照してください。
+
+```text
+Copyright (c) 2026 HAYAKAWA
+```
+
+同梱・依存コンポーネント（React / Vite / TypeScript / Python / Tcl-Tk / PyInstaller など）の
+ライセンスと、実行ファイル等を配布する際の注意点は
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) にまとめています。
+
+開発用の非公開リポジトリ（`origin`）と公開リポジトリ
+（`mezzotokyo/local-llm-and-ballistics-sim`）は同じソースを共有し、ライセンスは
+公開側に対して付与されます。
+

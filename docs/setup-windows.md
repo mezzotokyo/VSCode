@@ -23,7 +23,13 @@ Scoop は既定で `~\scoop` に導入され、`~\scoop\shims` が PATH に追�
 先頭に指定する（後ろに置くといちいち git の導入を求められる）。
 
 ```powershell
-scoop install git python gh opencode nodejs
+scoop install git python gh nodejs
+```
+
+opencode（開発支援 CLI）は必要に応じて導入する。
+
+```powershell
+scoop install opencode
 ```
 
 | ソフト | 用途 | 備考 |
@@ -32,7 +38,7 @@ scoop install git python gh opencode nodejs
 | Node.js 20.19 以上 / 22.12 以上 | `webapp` の開発サーバ・ビルド | Scoop `main` バケット（`nodejs`）。Vite 8 の要件。npm 同梱。`webapp` を使わない場合は不要 |
 | Git for Windows | リポジトリ操作・フック実行 | Scoop `main` バケット。フックは POSIX シェルで書かれているが、Git for Windows は `sh` を同梱しているためそのまま動く |
 | GitHub CLI (`gh`) | GitHub 認証 | Scoop `main` バケット。初回のみ `gh auth login --hostname github.com --git-protocol https --web` |
-| opencode | 開発支援 CLI | Scoop `main` バケット。必須ではない |
+| opencode | 開発支援 CLI | Scoop `main` バケット。必要に応じて導入 |
 
 Scoop は導入した実行ファイルを `~\scoop\shims` にシムとして置き、このディレクトリを
 PATH に通す。`scoop install` 直後に「コマンドが見つからない」と出る場合は、
