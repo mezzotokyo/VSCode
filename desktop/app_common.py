@@ -28,6 +28,14 @@ from gui_model import LaunchConditions, SimulationOutcome
 POLL_INTERVAL_MS = 50
 INITIAL_RUN_DELAY_MS = 150
 
+# Room kept free below/right of the window. ``winfo_screenheight()`` counts the
+# taskbar on Windows, so clamping to the raw screen height would still tuck the
+# bottom of the window behind it.
+SCREEN_MARGIN = 48
+# A clamp must never collapse a window to a size nobody can work with.
+FLOOR_WIDTH = 480
+FLOOR_HEIGHT = 360
+
 
 class BaseApp(tk.Tk):
     """Common window behaviour for a single-model simulation window."""
@@ -38,8 +46,12 @@ class BaseApp(tk.Tk):
     def __init__(self, title: str, geometry: str, minsize: tuple[int, int]) -> None:
         super().__init__()
         self.title(title)
-        self.geometry(geometry)
-        self.minsize(*minsize)
+        width, height = (int(part) for part in geometry.split("x"))
+        width, height, min_width, min_height = self._fit_to_screen(
+            width, height, *minsize
+        )
+        self.geometry(f"{width}x{height}")
+        self.minsize(min_width, min_height)
 
         self._results: queue.Queue[tuple[str, object]] = queue.Queue()
         self._running = False
@@ -50,6 +62,22 @@ class BaseApp(tk.Tk):
         self._warning_var = tk.StringVar(value="")
         self._run_button: ttk.Button | None = None
         self._metrics_panel: ttk.LabelFrame | None = None
+
+    def _fit_to_screen(
+        self, width: int, height: int, min_width: int, min_height: int
+    ) -> tuple[int, int, int, int]:
+        """Shrink the initial size and the declared minimum to the display.
+
+        A fixed ``geometry`` taller than the screen opens partly off-screen and
+        cannot be dragged back into view, and a ``minsize`` taller than the
+        screen leaves no way to shrink the window far enough. Both are clamped
+        to the same budget so the smaller of the two always wins.
+        """
+        budget_width = max(self.winfo_screenwidth() - SCREEN_MARGIN, FLOOR_WIDTH)
+        budget_height = max(self.winfo_screenheight() - SCREEN_MARGIN, FLOOR_HEIGHT)
+        width = min(width, budget_width)
+        height = min(height, budget_height)
+        return width, height, min(min_width, width), min(min_height, height)
 
     # ------------------------------------------------------------------ startup
 
