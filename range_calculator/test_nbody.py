@@ -716,6 +716,100 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(result.timed_out)
 
 
+class AdaptiveTimestepTests(unittest.TestCase):
+    """Adaptive mode: dt is a ceiling, the step only ever shrinks."""
+
+    def setUp(self):
+        # A barycentre circular pair of unit separation: the two-body period is
+        # constant, so the adaptive step is constant too.
+        self.pair = circular_pair(1.0, 1.0, 1.0)
+        self.period = pair_period(1.0, 1.0, 1.0)
+        self.adaptive_step = self.period / nbody.ADAPTIVE_STEPS_PER_PERIOD
+
+    def test_step_never_exceeds_the_ceiling(self):
+        simulator = NBodySimulator(
+            self.pair, dt=0.5, max_time=self.period, adaptive=True
+        )
+        simulator.run_simulation()
+        result = simulator.result()
+        self.assertLessEqual(result.timestep_max, 0.5)
+        self.assertAlmostEqual(
+            result.timestep_max, self.adaptive_step, places=9
+        )
+        self.assertLessEqual(result.timestep_min, result.timestep_max)
+
+    def test_shortens_a_ceiling_that_is_too_coarse(self):
+        coarse = NBodySimulator(
+            self.pair, dt=0.5, max_time=self.period, adaptive=False
+        )
+        adaptive = NBodySimulator(
+            self.pair, dt=0.5, max_time=self.period, adaptive=True
+        )
+        coarse.run_simulation()
+        adaptive.run_simulation()
+        self.assertLess(adaptive.result().timestep_max, 0.5)
+        self.assertGreater(adaptive.steps, coarse.steps)
+
+    def test_matches_fixed_mode_below_the_adaptive_limit(self):
+        fixed = NBodySimulator(self.pair, dt=0.01, max_time=self.period)
+        adaptive = NBodySimulator(
+            self.pair, dt=0.01, max_time=self.period, adaptive=True
+        )
+        fixed.run_simulation()
+        adaptive.run_simulation()
+        self.assertEqual(fixed.steps, adaptive.steps)
+        self.assertEqual(fixed.system, adaptive.system)
+
+    def test_a_single_body_has_no_orbit_to_resolve(self):
+        bodies = (Body(1.0, (0.0, 0.0, 0.0, 1.0, 0.0, 0.0)),)
+        fixed = NBodySimulator(bodies, dt=0.1, max_time=1.0)
+        adaptive = NBodySimulator(bodies, dt=0.1, max_time=1.0, adaptive=True)
+        fixed.run_simulation()
+        adaptive.run_simulation()
+        self.assertEqual(fixed.steps, adaptive.steps)
+        self.assertEqual(fixed.system, adaptive.system)
+
+    def test_keeps_steps_per_orbit(self):
+        simulator = NBodySimulator(
+            self.pair, dt=self.period, max_time=self.period, adaptive=True
+        )
+        simulator.run_simulation()
+        # ADAPTIVE_STEPS_PER_PERIOD steps for one period, plus at most one
+        # trimmed step from the floating-point remainder.
+        self.assertGreaterEqual(simulator.steps, nbody.ADAPTIVE_STEPS_PER_PERIOD)
+        self.assertLessEqual(
+            simulator.steps, nbody.ADAPTIVE_STEPS_PER_PERIOD + 2
+        )
+
+    def test_conserves_energy_over_a_coarse_ceiling(self):
+        simulator = NBodySimulator(
+            self.pair, dt=0.5, max_time=self.period, adaptive=True
+        )
+        before = total_energy(simulator.bodies)
+        simulator.run_simulation()
+        after = total_energy(simulator.bodies)
+        self.assertLess(abs(after - before) / abs(before), 1e-5)
+
+
+class ResultTimestepTests(unittest.TestCase):
+    """SystemResult exposes the step bounds in both modes."""
+
+    def setUp(self):
+        self.pair = circular_pair(1.0, 1.0, 1.0)
+
+    def test_before_a_run_the_bounds_are_none(self):
+        simulator = NBodySimulator(self.pair)
+        self.assertIsNone(simulator.result().timestep_min)
+        self.assertIsNone(simulator.result().timestep_max)
+
+    def test_fixed_mode_reports_the_ceiling(self):
+        simulator = NBodySimulator(self.pair, dt=0.01, max_time=0.05)
+        simulator.run_simulation()
+        result = simulator.result()
+        self.assertAlmostEqual(result.timestep_max, 0.01, places=12)
+        self.assertAlmostEqual(result.timestep_min, 0.01, places=12)
+
+
 class ContractTests(unittest.TestCase):
     """The core module keeps the same boundaries as ballistics."""
 

@@ -38,9 +38,7 @@ def sun_earth_conditions(
 ) -> NBodyConditions:
     """A Sun-centred system with Earth on a circular orbit, for the run tests."""
     sun = gui_model.nbody_preset_bodies("sun_centered")[0]
-    earth = gui_model.nbody_catalog_spec(
-        "地球", sun.mu, sun.radius + 6_371_000.0
-    )
+    earth = gui_model.nbody_catalog_spec("地球", sun.state, sun.mu, sun.radius)
     if max_time is None:
         max_time = 365.25 * 86400.0
     return NBodyConditions(bodies=(sun, earth), dt=dt, max_time=max_time)
@@ -53,8 +51,34 @@ class PresetTests(unittest.TestCase):
             (
                 ("sun_centered", "太陽を中心とした多体問題"),
                 ("earth_centered", "地球を中心とした多体問題"),
+                ("sun_earth_moon", "太陽・地球・月（3体）"),
             ),
         )
+
+    def test_three_body_preset_places_the_moon_about_the_earth(self) -> None:
+        conditions = gui_model.nbody_preset_conditions("sun_earth_moon")
+        sun, earth, moon = conditions.bodies
+        self.assertEqual([body.name for body in conditions.bodies], ["太陽", "地球", "月"])
+        expected = gui_model.nbody_orbit_separation("月", earth.radius)
+        self.assertAlmostEqual(
+            math.dist(moon.state[:3], earth.state[:3]), expected
+        )
+        self.assertLess(math.dist(earth.state[:3], sun.state[:3]), 1.6e11)
+
+    def test_three_body_preset_cancels_the_total_momentum(self) -> None:
+        bodies = gui_model.nbody_preset_conditions("sun_earth_moon").bodies
+        total_mu = sum(body.mu for body in bodies)
+        for index in (3, 4, 5):
+            momentum = sum(body.mu * body.state[index] for body in bodies) / total_mu
+            self.assertAlmostEqual(momentum, 0.0, places=6)
+
+    def test_three_body_preset_runs_and_conserves_energy(self) -> None:
+        conditions = gui_model.nbody_preset_conditions("sun_earth_moon")
+        self.assertIsNone(gui_model.validate_nbody_conditions(conditions))
+        self.assertIsNone(gui_model.nbody_timestep_warning(conditions))
+        outcome = gui_model.run_nbody(conditions)
+        self.assertEqual(len(outcome.frames[0].positions), 3)
+        self.assertLess(abs(outcome.energy_drift_percent), 1e-6)
 
     def test_presets_start_from_the_central_body_only(self) -> None:
         sun = gui_model.nbody_preset_bodies("sun_centered")
@@ -112,10 +136,12 @@ class CircularOrbitTests(unittest.TestCase):
 
     def test_catalog_spec_seeds_density_radius_and_circular_speed(self) -> None:
         central_mu = gui_model.nbody_mu(1408.0, 695_700_000.0)
-        _name, density, radius, orbit = next(
+        _name, _primary, density, radius, orbit = next(
             entry for entry in gui_model.NBODY_CATALOG if entry[0] == "地球"
         )
-        body = gui_model.nbody_catalog_spec("地球", central_mu)
+        body = gui_model.nbody_catalog_spec(
+            "地球", (0.0,) * 6, central_mu, 695_700_000.0
+        )
         self.assertEqual(body.name, "地球")
         self.assertEqual(body.density, density)
         self.assertEqual(body.radius, radius)
@@ -126,8 +152,77 @@ class CircularOrbitTests(unittest.TestCase):
         central_mu = gui_model.nbody_mu(1408.0, 695_700_000.0)
         # The Moon's default is its geocentric distance, inside the Sun's radius.
         min_separation = 7.0e8
-        body = gui_model.nbody_catalog_spec("月", central_mu, min_separation)
+        body = gui_model.nbody_catalog_spec(
+            "月", (0.0,) * 6, central_mu, min_separation
+        )
         self.assertGreaterEqual(body.state[0], min_separation)
+
+    def test_catalog_spec_offsets_from_the_host_state(self) -> None:
+        host = gui_model.nbody_preset_bodies("earth_centered")[0]
+        host_state = (1.0e11, 2.0e10, 0.0, 0.0, 2.9e4, 0.0)
+        satellite = gui_model.nbody_catalog_spec(
+            gui_model.NBODY_SATELLITE, host_state, host.mu, host.radius, 400_000.0
+        )
+        # The satellite sits 400 km above the host, keeping its x velocity but
+        # gaining the circular speed sqrt(mu / r) in +y.
+        separation = host.radius + 400_000.0
+        self.assertAlmostEqual(satellite.state[3], host_state[3])
+        self.assertAlmostEqual(
+            satellite.state[4],
+            host_state[4] + math.sqrt(host.mu / separation),
+        )
+        self.assertAlmostEqual(satellite.state[0], host_state[0] + separation)
+
+    def test_satellite_separation_uses_the_altitude_field(self) -> None:
+        altitude = 550_000.0
+        self.assertEqual(
+            gui_model.nbody_orbit_separation(
+                gui_model.NBODY_SATELLITE, 6_371_000.0, altitude
+            ),
+            6_371_000.0 + altitude,
+        )
+        # Without an altitude the catalogue default is used.
+        self.assertEqual(
+            gui_model.nbody_orbit_separation(gui_model.NBODY_SATELLITE, 6_371_000.0),
+            6_371_000.0 + gui_model.NBODY_SATELLITE_ALTITUDE_DEFAULT,
+        )
+
+    def test_altitude_applies_to_any_body(self) -> None:
+        # The Moon can be placed around Mars at a chosen height above its
+        # surface, overriding the catalogue's geocentric distance.
+        mars_radius = 3_389_500.0
+        self.assertEqual(
+            gui_model.nbody_orbit_separation("月", mars_radius, 1.0e8),
+            mars_radius + 1.0e8,
+        )
+
+    def test_moon_about_mars_uses_the_altitude(self) -> None:
+        mars_radius = 3_389_500.0
+        mars_mu = gui_model.nbody_mu(3933.0, mars_radius)
+        moon = gui_model.nbody_catalog_spec(
+            "月", (0.0,) * 6, mars_mu, mars_radius, 1.0e8
+        )
+        separation = mars_radius + 1.0e8
+        self.assertAlmostEqual(moon.state[0], separation)
+        self.assertAlmostEqual(moon.state[4], math.sqrt(mars_mu / separation))
+
+
+class CataloguePrimaryTests(unittest.TestCase):
+    def test_natural_primaries(self) -> None:
+        self.assertEqual(gui_model.nbody_catalog_primary("太陽"), "")
+        self.assertEqual(gui_model.nbody_catalog_primary("地球"), "太陽")
+        self.assertEqual(gui_model.nbody_catalog_primary("月"), "地球")
+        self.assertEqual(
+            gui_model.nbody_catalog_primary(gui_model.NBODY_SATELLITE), "地球"
+        )
+
+    def test_unknown_name_has_no_primary(self) -> None:
+        self.assertEqual(gui_model.nbody_catalog_primary("未知"), "")
+        self.assertEqual(gui_model.nbody_catalog_primary("天体3"), "")
+
+    def test_orbit_separation_rejects_an_unknown_name(self) -> None:
+        with self.assertRaises(KeyError):
+            gui_model.nbody_orbit_separation("未知", 1.0)
 
 
 class BodyCatalogTests(unittest.TestCase):
@@ -146,34 +241,37 @@ class BodyCatalogTests(unittest.TestCase):
         "海王星": 6.836_529e15,
     }
 
-    def test_catalog_is_the_sun_planets_and_moon(self) -> None:
-        names = [name for name, _d, _r, _o in gui_model.NBODY_CATALOG]
+    def test_catalog_is_the_sun_planets_moon_and_satellite(self) -> None:
+        names = [entry[0] for entry in gui_model.NBODY_CATALOG]
         self.assertEqual(
             names,
-            ["太陽", "水星", "金星", "地球", "月", "火星", "木星", "土星", "天王星", "海王星"],
+            [
+                "太陽", "水星", "金星", "地球", "月", "火星", "木星", "土星",
+                "天王星", "海王星", gui_model.NBODY_SATELLITE,
+            ],
         )
         self.assertEqual(len(names), len(set(names)))
 
     def test_catalog_entries_are_positive(self) -> None:
-        for name, density, radius, orbit in gui_model.NBODY_CATALOG:
+        for name, _primary, density, radius, value in gui_model.NBODY_CATALOG:
             with self.subTest(body=name):
                 self.assertGreater(density, 0.0)
                 self.assertGreater(radius, 0.0)
-                self.assertGreater(orbit, 0.0)
+                self.assertGreater(value, 0.0)
 
     def test_derived_mu_matches_measured_values_closely(self) -> None:
         # Volume-mean density is an approximation; the GUI accepts a small
         # error against measured GM (see the module docstring in gui_model).
-        for name, density, radius, _orbit in gui_model.NBODY_CATALOG:
+        for name, _primary, density, radius, _value in gui_model.NBODY_CATALOG:
+            if name == gui_model.NBODY_SATELLITE:
+                continue  # A point satellite has no measured GM.
             with self.subTest(body=name):
                 mu = gui_model.nbody_mu(density, radius)
                 expected = self.MEASURED_MU[name]
                 self.assertLess(abs(mu - expected) / expected, 0.005)
 
     def test_default_orbital_radii_increase_outward(self) -> None:
-        orbits = {
-            name: orbit for name, _d, _r, orbit in gui_model.NBODY_CATALOG
-        }
+        orbits = {entry[0]: entry[4] for entry in gui_model.NBODY_CATALOG}
         order = ["水星", "金星", "地球", "火星", "木星", "土星", "天王星", "海王星"]
         radii = [orbits[name] for name in order]
         self.assertEqual(radii, sorted(radii))
@@ -239,6 +337,16 @@ class ConditionsFromRowsTests(unittest.TestCase):
             [self.row(name="   ")], "60", "1000"  # type: ignore[list-item]
         )
         self.assertEqual(conditions.bodies[0].name, "天体1")
+
+    def test_parses_the_adaptive_flag(self) -> None:
+        fixed = gui_model.nbody_conditions_from_rows(
+            [self.row()], "60", "1000"  # type: ignore[list-item]
+        )
+        adaptive = gui_model.nbody_conditions_from_rows(
+            [self.row()], "60", "1000", adaptive=True  # type: ignore[list-item]
+        )
+        self.assertFalse(fixed.adaptive)
+        self.assertTrue(adaptive.adaptive)
 
     def test_rejects_an_empty_body_list(self) -> None:
         with self.assertRaises(ValueError) as caught:
@@ -343,6 +451,96 @@ class ValidateConditionsTests(unittest.TestCase):
             "重力が特異になるため開始できません。",
         )
 
+    def test_rejects_an_adaptive_run_over_the_step_budget(self) -> None:
+        # The adaptive limit tightens the step well below dt, so the estimate
+        # still catches a run whose ceiling alone would have looked affordable.
+        bodies = sun_earth_conditions().bodies
+        message = gui_model.validate_nbody_conditions(
+            NBodyConditions(
+                bodies=bodies,
+                dt=1.0e7,
+                max_time=1.0e15,
+                adaptive=True,
+            )
+        )
+        assert message is not None
+        self.assertIn("推定ステップ数", message)
+        self.assertIn(f"{gui_model.MAX_NBODY_STEPS:,}", message)
+
+
+class EstimatedStepsTests(unittest.TestCase):
+    def test_single_body_uses_the_fixed_dt(self) -> None:
+        conditions = NBodyConditions(bodies=(spec(),), dt=2.0, max_time=10.0)
+        self.assertEqual(gui_model.nbody_estimated_steps(conditions), 5)
+
+    def test_adaptive_uses_the_tightest_pair_limit(self) -> None:
+        base = sun_earth_conditions()
+        period = gui_model.nbody_shortest_pair_period(base)
+        assert period is not None
+        fixed = gui_model.NBodyConditions(
+            bodies=base.bodies, dt=1.0e7, max_time=base.max_time
+        )
+        adaptive = gui_model.NBodyConditions(
+            bodies=base.bodies,
+            dt=1.0e7,
+            max_time=base.max_time,
+            adaptive=True,
+        )
+        # The coarse dt would need a handful of steps, but the adaptive limit
+        # forces ADAPTIVE_STEPS_PER_PERIOD steps per Earth year.
+        self.assertLess(gui_model.nbody_estimated_steps(fixed), 10)
+        self.assertAlmostEqual(
+            gui_model.nbody_estimated_steps(adaptive),
+            gui_model.ADAPTIVE_STEPS_PER_PERIOD,
+            delta=2,
+        )
+
+
+class TimestepWarningTests(unittest.TestCase):
+    def test_single_body_has_no_pair_period_or_warning(self) -> None:
+        conditions = NBodyConditions(bodies=(spec(),), dt=3600.0, max_time=1000.0)
+        self.assertIsNone(gui_model.nbody_shortest_pair_period(conditions))
+        self.assertIsNone(gui_model.nbody_timestep_warning(conditions))
+
+    def test_sun_earth_pair_period_is_the_earth_year(self) -> None:
+        period = gui_model.nbody_shortest_pair_period(sun_earth_conditions())
+        assert period is not None
+        self.assertAlmostEqual(period / 31_557_600.0, 1.0, delta=0.02)
+
+    def test_adaptive_mode_never_warns(self) -> None:
+        coarse = sun_earth_conditions()
+        fixed = NBodyConditions(
+            bodies=coarse.bodies, dt=1.0e7, max_time=coarse.max_time
+        )
+        adaptive = NBodyConditions(
+            bodies=coarse.bodies,
+            dt=1.0e7,
+            max_time=coarse.max_time,
+            adaptive=True,
+        )
+        self.assertIsNotNone(gui_model.nbody_timestep_warning(fixed))
+        self.assertIsNone(gui_model.nbody_timestep_warning(adaptive))
+
+    def test_adequate_timestep_does_not_warn(self) -> None:
+        for preset in ("sun_centered", "earth_centered", "sun_earth_moon"):
+            with self.subTest(preset=preset):
+                conditions = gui_model.nbody_preset_conditions(preset)
+                self.assertIsNone(gui_model.nbody_timestep_warning(conditions))
+
+    def test_coarse_timestep_warns_about_the_tightest_pair(self) -> None:
+        earth = gui_model.nbody_preset_bodies("earth_centered")[0]
+        satellite = gui_model.nbody_catalog_spec(
+            gui_model.NBODY_SATELLITE, earth.state, earth.mu, earth.radius, 400_000.0
+        )
+        # dt = 3600 s is far above a low Earth orbit's ~92 min period.
+        conditions = NBodyConditions(
+            bodies=(earth, satellite), dt=3600.0, max_time=86_400.0
+        )
+        warning = gui_model.nbody_timestep_warning(conditions)
+        assert warning is not None
+        self.assertIn("dt", warning)
+        self.assertIn("周期", warning)
+
 
 class RunNBodyTests(unittest.TestCase):
     """A Sun-centred two-body run, shared by the assertions below."""
@@ -382,9 +580,7 @@ class RunNBodyTests(unittest.TestCase):
 
     def test_moon_around_earth_records_two_bodies(self) -> None:
         earth = gui_model.nbody_preset_bodies("earth_centered")[0]
-        moon = gui_model.nbody_catalog_spec(
-            "月", earth.mu, earth.radius + 1_737_400.0
-        )
+        moon = gui_model.nbody_catalog_spec("月", earth.state, earth.mu, earth.radius)
         conditions = NBodyConditions(
             bodies=(earth, moon),
             dt=gui_model.EARTH_CENTERED_DT,
@@ -400,6 +596,39 @@ class RunNBodyTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             gui_model.run_nbody(bad)
         self.assertEqual(str(caught.exception), "刻み幅 dt は正の数で指定してください。")
+
+
+class AdaptiveRunTests(unittest.TestCase):
+    @staticmethod
+    def coarse_adaptive() -> NBodyConditions:
+        base = sun_earth_conditions()
+        return NBodyConditions(
+            bodies=base.bodies,
+            dt=1.0e7,
+            max_time=base.max_time,
+            adaptive=True,
+        )
+
+    def test_shortens_a_coarse_ceiling_and_finishes(self) -> None:
+        conditions = self.coarse_adaptive()
+        outcome = gui_model.run_nbody(conditions)
+        self.assertTrue(outcome.timed_out)
+        self.assertLessEqual(outcome.timestep_max, 1.0e7)
+        self.assertLess(outcome.timestep_min, 1.0e7)
+        self.assertLessEqual(
+            abs(outcome.steps - gui_model.nbody_estimated_steps(conditions)), 2
+        )
+        self.assertLess(abs(outcome.energy_drift_percent), 1e-3)
+
+    def test_metrics_report_the_shortest_step(self) -> None:
+        outcome = gui_model.run_nbody(self.coarse_adaptive())
+        rows = {
+            key: (label, value)
+            for key, label, value in gui_model.nbody_result_metrics(outcome)
+        }
+        label, value = rows["timestep"]
+        self.assertEqual(label, "最短刻み")
+        self.assertTrue(value.endswith(" s"))
 
 
 class NBodyMetricsTests(unittest.TestCase):
@@ -426,6 +655,7 @@ class NBodyMetricsTests(unittest.TestCase):
         self.assertEqual(values["bodies"], "2")
         self.assertEqual(values["timed_out"], "yes")
         self.assertEqual(values["steps"], "8,766")
+        self.assertTrue(values["timestep"].endswith(" s"))
         self.assertEqual(values["frames"], f"{len(self.outcome.frames):,}")
         # Elapsed shows comma-grouped seconds plus a days/hours/minutes form.
         self.assertIn("31,557,600.00 s", values["elapsed"])

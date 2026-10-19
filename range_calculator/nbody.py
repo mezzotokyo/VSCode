@@ -15,15 +15,20 @@ combines fields evaluated at a single state and therefore models several
 *fixed* centres; :func:`mutual_gravity` evaluates each pair at the bodies'
 *current* positions.
 
-The integrator is fixed-timestep classical RK4. There is no adaptive mode: the
-stability band in :class:`ballistics.ProjectileSimulator` is derived from the
-drag coefficient and has no N-body analogue. Choose ``dt`` as a small fraction
-of the shortest dynamical timescale in the system, for example the period of
-the tightest pair, ``T = 2*pi*sqrt(r^3 / (mu_i + mu_j))``. Two hard guards
-remain: a non-finite state, and any body exceeding ``divergence_speed_factor``
-times its initial speed, both raise :class:`ballistics.SimulationDiverged`.
-Exact positional coincidence of two bodies is singular and is rejected both at
-construction time and inside the field.
+The integrator is classical RK4. By default the timestep is fixed: choose ``dt``
+as a small fraction of the shortest dynamical timescale in the system, for
+example the period of the tightest pair, ``T = 2*pi*sqrt(r^3 / (mu_i + mu_j))``.
+With ``adaptive=True`` the caller's ``dt`` becomes a ceiling and every step is
+shortened to ``T_min / ADAPTIVE_STEPS_PER_PERIOD``, where ``T_min`` is the
+smallest pair period at the current positions. This is the N-body analogue of
+the drag-band adaptive mode in :class:`ballistics.ProjectileSimulator`: it keeps
+a fixed number of steps per orbit so the fixed-step result does not diverge, and
+it never lengthens a step beyond ``dt`` (so it is a stability guard, not an
+accuracy upgrade). Two hard guards remain: a non-finite state, and any body
+exceeding ``divergence_speed_factor`` times its initial speed, both raise
+:class:`ballistics.SimulationDiverged`. Exact positional coincidence of two
+bodies is singular and is rejected both at construction time and inside the
+field.
 
 Diagnostics (:func:`total_energy`, :func:`linear_momentum`,
 :func:`angular_momentum`, :func:`center_of_mass`) are evaluated in units where
@@ -51,6 +56,14 @@ SystemState = tuple[State, ...]
 SystemAccelerations = tuple[tuple[float, float, float], ...]
 SystemField = Callable[[SystemState], SystemAccelerations]
 
+# Steps per orbit of the tightest pair in adaptive mode. With ``adaptive=True``
+# each step is shortened to ``shortest_pair_period / ADAPTIVE_STEPS_PER_PERIOD``.
+# RK4 energy drift scales as (steps per period) ** -4, so this is set well above
+# the fixed-mode divergence threshold: 100 steps per orbit keeps the drift near
+# 1e-6 per orbit, which matters when the caller wants many orbits (exoplanet
+# timescales) rather than just a bounded, non-diverging run.
+ADAPTIVE_STEPS_PER_PERIOD = 100
+
 
 class Body(NamedTuple):
     """A single point mass: standard gravitational parameter ``mu`` and its state.
@@ -65,11 +78,19 @@ class Body(NamedTuple):
 
 
 class SystemResult(NamedTuple):
-    """Outcome of an N-body run, available via :meth:`NBodySimulator.result`."""
+    """Outcome of an N-body run, available via :meth:`NBodySimulator.result`.
+
+    ``timestep_min`` / ``timestep_max`` are the smallest and largest steps
+    actually taken (``None`` before any run). In adaptive mode ``timestep_max``
+    is at most the ``dt`` ceiling and ``timestep_min`` shows how far the step had
+    to shrink; in fixed mode both equal ``dt`` except for the trimmed final step.
+    """
 
     elapsed_time: float
     steps: int
     timed_out: bool
+    timestep_min: float | None = None
+    timestep_max: float | None = None
 
 
 def mutual_gravity(
@@ -228,7 +249,11 @@ def center_of_mass(bodies: Sequence[Body]) -> tuple[float, float, float]:
 
 
 class NBodySimulator:
-    """Integrates mutual point-mass gravity with classical fixed-step RK4.
+    """Integrates mutual point-mass gravity with classical RK4.
+
+    The timestep is fixed unless ``adaptive`` is true, in which case ``dt`` is a
+    ceiling and each step is shortened to keep :data:`ADAPTIVE_STEPS_PER_PERIOD`
+    steps per orbit of the tightest pair (see :meth:`_adaptive_timestep`).
 
     The system is validated at construction: at least one body, positive
     finite ``mu`` for each, six finite state components, and no two bodies at
@@ -246,12 +271,14 @@ class NBodySimulator:
         divergence_speed_factor: float = 1000.0,
         min_separation: float = 0.0,
         gravity_model: SystemField | None = None,
+        adaptive: bool = False,
     ) -> None:
         self.min_separation = _non_negative("min_separation", min_separation)
         self.initial_bodies = _coerce_bodies(bodies, self.min_separation)
         self.mus = tuple(body.mu for body in self.initial_bodies)
         self.dt = _positive("dt", dt)
         self.default_dt = self.dt
+        self.adaptive = bool(adaptive)
         self.max_time = (
             DEFAULT_PARAMETERS.max_time if max_time is None
             else _positive("max_time", max_time)
@@ -295,6 +322,8 @@ class NBodySimulator:
         self.timed_out = False
         self.dt = self.default_dt
         self.steps = 0
+        self.timestep_min: float | None = None
+        self.timestep_max: float | None = None
 
     def run_simulation(
         self,
@@ -311,6 +340,12 @@ class NBodySimulator:
         observation hook: the system is an immutable tuple, so a callback may
         keep a reference without copying. Passing ``None`` (the default)
         records nothing.
+
+        In adaptive mode ``dt`` is a ceiling, not the step actually taken: each
+        step is shortened by :meth:`_adaptive_timestep` to the tightest pair's
+        timescale. The step never exceeds the value the caller asked for, so this
+        guards against divergence without silently claiming more accuracy than
+        ``dt`` allows.
 
         The final step is trimmed so the elapsed time never exceeds
         ``max_time``; the run then sets ``timed_out``. Unless ``resume`` is
@@ -343,9 +378,13 @@ class NBodySimulator:
         )
 
         while True:
-            h = min(timestep, self.max_time - self.t)
+            h = timestep
+            if self.adaptive:
+                h = min(h, self._adaptive_timestep(self.system))
+            h = min(h, self.max_time - self.t)
             next_system = _rk4_step(self.system, h, gravity_model)
             self.steps += 1
+            self._record_timestep(h)
             self._guard_against_divergence(next_system, speed_limit)
             self.system = next_system
             self.t += h
@@ -356,6 +395,42 @@ class NBodySimulator:
                 break
 
         return self.t
+
+    def _adaptive_timestep(self, system: SystemState) -> float:
+        """Step keeping :data:`ADAPTIVE_STEPS_PER_PERIOD` steps per tightest orbit.
+
+        Evaluates every pair's current Kepler period
+        ``T = 2*pi*sqrt(r^3 / (mu_i + mu_j))`` and returns
+        ``T_min / ADAPTIVE_STEPS_PER_PERIOD``, or ``inf`` for a single body (no
+        pair, so no orbit to resolve). The result is only ever used as a ceiling
+        on the caller's ``dt``, so it can shrink a step but never lengthen one.
+        """
+        smallest = self._shortest_pair_period(system)
+        if smallest is None:
+            return float("inf")
+        return smallest / ADAPTIVE_STEPS_PER_PERIOD
+
+    def _shortest_pair_period(self, system: SystemState) -> float | None:
+        """Smallest current pair period, or ``None`` when there is no pair."""
+        smallest: float | None = None
+        for i in range(len(system)):
+            for j in range(i + 1, len(system)):
+                separation = _distance(system[i], system[j])
+                combined_mu = self.mus[i] + self.mus[j]
+                if separation <= 0.0 or combined_mu <= 0.0:
+                    continue
+                period = 2.0 * math.pi * math.sqrt(
+                    separation**3 / combined_mu
+                )
+                if smallest is None or period < smallest:
+                    smallest = period
+        return smallest
+
+    def _record_timestep(self, timestep: float) -> None:
+        if self.timestep_min is None or timestep < self.timestep_min:
+            self.timestep_min = timestep
+        if self.timestep_max is None or timestep > self.timestep_max:
+            self.timestep_max = timestep
 
     def _guard_against_divergence(
         self,
@@ -386,6 +461,8 @@ class NBodySimulator:
             elapsed_time=self.t,
             steps=self.steps,
             timed_out=self.timed_out,
+            timestep_min=self.timestep_min,
+            timestep_max=self.timestep_max,
         )
 
 

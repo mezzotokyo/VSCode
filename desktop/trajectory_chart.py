@@ -342,8 +342,10 @@ class NBodyChart(tk.Canvas):
     The playback slider drives :meth:`set_frame`: each body draws its trail up
     to the current frame, a marker at its current position, and a colour
     legend so several bodies stay distinguishable. The domain is computed once
-    in :meth:`show` over *all* frames at an equal aspect scale, so the view
-    does not jump or distort while scrubbing.
+    in :meth:`show` over *all* frames at an equal aspect scale, so the view does
+    not jump or distort while scrubbing. :meth:`set_focus` re-centres the view
+    on a chosen body (positions are drawn relative to it) so a small orbit next
+    to a much larger one stays visible.
     """
 
     marker_radius = 6
@@ -359,6 +361,9 @@ class NBodyChart(tk.Canvas):
         self._frames: Sequence[NBodyFrame] = ()
         self._names: tuple[str, ...] = ()
         self._index = 0
+        # Display centre: -1 keeps the origin (the barycentre); an index centres
+        # the view on that body's instantaneous position.
+        self._focus = -1
         self._xs: list[float] = []
         self._ys: list[float] = []
         self.bind("<Configure>", lambda _event: self._redraw())
@@ -373,14 +378,47 @@ class NBodyChart(tk.Canvas):
         """Index of the frame currently displayed."""
         return self._index
 
-    def show(self, outcome: NBodyOutcome) -> None:
-        """Load a completed run and display its first frame."""
+    def show(self, outcome: NBodyOutcome, focus: int = -1) -> None:
+        """Load a completed run and display its first frame.
+
+        ``focus`` selects the display centre: ``-1`` keeps the origin (the
+        barycentre), any other value centres the view on that body so its
+        motion fills the plot however small it is next to the rest of the
+        system.
+        """
         self._frames = tuple(outcome.frames)
         self._names = tuple(spec.name for spec in outcome.conditions.bodies)
         self._index = 0
-        self._xs = [p[0] for frame in self._frames for p in frame.positions]
-        self._ys = [p[1] for frame in self._frames for p in frame.positions]
+        self._focus = max(-1, min(int(focus), len(self._names) - 1))
+        self._recompute_domain()
         self._redraw()
+
+    def set_focus(self, index: int) -> int:
+        """Centre the view on a body (``-1`` for the origin); returns it."""
+        clamped = max(-1, min(int(index), len(self._names) - 1))
+        if clamped != self._focus:
+            self._focus = clamped
+            self._recompute_domain()
+            self._redraw()
+        return clamped
+
+    def _relative(self, frame: NBodyFrame, body_index: int) -> tuple[float, float]:
+        position = frame.positions[body_index]
+        if 0 <= self._focus < len(frame.positions):
+            origin = frame.positions[self._focus]
+            return position[0] - origin[0], position[1] - origin[1]
+        return position[0], position[1]
+
+    def _recompute_domain(self) -> None:
+        xs: list[float] = []
+        ys: list[float] = []
+        for frame in self._frames:
+            for body_index in range(len(frame.positions)):
+                x, y = self._relative(frame, body_index)
+                xs.append(x)
+                ys.append(y)
+        self._xs = xs
+        self._ys = ys
 
     def set_frame(self, index: int) -> int:
         """Jump to ``index`` (clamped to the recorded frames); returns it."""
@@ -397,6 +435,7 @@ class NBodyChart(tk.Canvas):
         self._frames = ()
         self._names = ()
         self._index = 0
+        self._focus = -1
         self._xs = []
         self._ys = []
         self._redraw()
@@ -452,13 +491,13 @@ class NBodyChart(tk.Canvas):
             coords: list[float] = []
             for past in self._frames[: self._index + 1]:
                 if body_index < len(past.positions):
-                    x, y = past.positions[body_index][0], past.positions[body_index][1]
-                    coords.extend((sx(x), sy(y)))
+                    rx, ry = self._relative(past, body_index)
+                    coords.extend((sx(rx), sy(ry)))
             if len(coords) >= 4:
                 self.create_line(*coords, fill=color, width=2)
             if body_index < len(frame.positions):
-                x, y = frame.positions[body_index][0], frame.positions[body_index][1]
-                center_x, center_y = sx(x), sy(y)
+                rx, ry = self._relative(frame, body_index)
+                center_x, center_y = sx(rx), sy(ry)
                 self.create_oval(
                     center_x - radius,
                     center_y - radius,

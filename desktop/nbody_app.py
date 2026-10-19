@@ -61,8 +61,12 @@ BODY_ENTRY_ROWS: tuple[tuple[str, ...], ...] = (
 # the hand-entered values untouched (used by the central body and by "add").
 CUSTOM_CATALOG_LABEL = "（カスタム）"
 CATALOG_LABELS: tuple[str, ...] = tuple(
-    name for name, _density, _radius, _orbit in gui_model.NBODY_CATALOG
+    entry[0] for entry in gui_model.NBODY_CATALOG
 ) + (CUSTOM_CATALOG_LABEL,)
+
+# Label of the sentinel the focus selector uses for the barycentre (the system
+# centre of mass, i.e. the origin once the preset momentum is cancelled).
+BARYCENTRE_LABEL = "重心（原点）"
 
 
 class _ScrolledFrame(ttk.Frame):
@@ -123,9 +127,11 @@ class NBodyApp(BaseApp):
         )
 
         self._preset_var = tk.StringVar(value=gui_model.NBODY_PRESETS[0][1])
+        self._adaptive_var = tk.BooleanVar(value=gui_model.DEFAULT_ADAPTIVE)
         self._dt_var = tk.StringVar()
         self._time_var = tk.StringVar()
         self._frame_var = tk.DoubleVar(value=0.0)
+        self._focus_var = tk.StringVar(value=BARYCENTRE_LABEL)
         self._body_vars: list[dict[str, tk.StringVar]] = []
         self._last_outcome: NBodyOutcome | None = None
         self._playing = False
@@ -219,8 +225,15 @@ class NBodyApp(BaseApp):
         time_entry.pack(side="right")
         time_entry.bind("<Return>", lambda _event: self._run())
 
+        ttk.Checkbutton(
+            top,
+            text="adaptive 刻み（dt を上限に最短のペア周期で自動短縮）",
+            variable=self._adaptive_var,
+        ).pack(anchor="w", pady=(6, 0))
+
         ttk.Label(
-            panel, text="天体（天体 1 が中心。2 つ目以降はカタログから選択）"
+            panel,
+            text="天体（天体 1 が中心。2 つ目以降は周回対象とカタログで配置）",
         ).grid(row=1, column=0, sticky="w", pady=(10, 4))
 
         self._controls_scroll = _ScrolledFrame(panel)
@@ -269,8 +282,21 @@ class NBodyApp(BaseApp):
         self._render_metric_rows(gui_model.DEFAULT_NBODY_METRIC_ROWS)
 
     def _build_playback(self, parent: ttk.Frame) -> None:
+        focus_row = ttk.Frame(parent)
+        focus_row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(focus_row, text="表示中心").pack(side="left")
+        self._focus_box = ttk.Combobox(
+            focus_row,
+            textvariable=self._focus_var,
+            values=[],
+            state="readonly",
+            width=22,
+        )
+        self._focus_box.pack(side="right")
+        self._focus_box.bind("<<ComboboxSelected>>", self._on_focus_selected)
+
         row = ttk.Frame(parent)
-        row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        row.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         row.columnconfigure(1, weight=1)
 
         self._play_button = ttk.Button(
@@ -298,20 +324,39 @@ class NBodyApp(BaseApp):
         conditions = gui_model.nbody_preset_conditions(value)
         self._dt_var.set(f"{conditions.dt:g}")
         self._time_var.set(f"{conditions.max_time:.0f}")
+        specs = conditions.bodies
         self._body_vars = [
-            self._fields_from_spec(spec) for spec in conditions.bodies
+            self._fields_from_spec(spec, index, [body.name for body in specs[:index]])
+            for index, spec in enumerate(specs)
         ]
         self._rebuild_body_groups()
 
     @staticmethod
-    def _fields_from_spec(spec: gui_model.NBodySpec) -> dict[str, tk.StringVar]:
-        fields = {
+    def _fields_from_spec(
+        spec: gui_model.NBodySpec,
+        index: int,
+        prior_names: list[str],
+    ) -> dict[str, tk.StringVar]:
+        host_index = 0
+        if index > 0:
+            primary = gui_model.nbody_catalog_primary(spec.name)
+            if primary in prior_names:
+                host_index = prior_names.index(primary)
+        fields: dict[str, tk.StringVar] = {
             "name": tk.StringVar(value=spec.name),
             "density": tk.StringVar(value=repr(spec.density)),
             "radius": tk.StringVar(value=repr(spec.radius)),
             # Per-body catalogue selector (index >= 1); the sentinel keeps the
             # hand-entered values, which is also the initial state.
             "catalog": tk.StringVar(value=CUSTOM_CATALOG_LABEL),
+            # Which body this one orbits about (an index into the body list).
+            # The natural primary (the Earth for the Moon and the satellite)
+            # is chosen when it is already present.
+            "host": tk.StringVar(value=str(host_index)),
+            # Height above the host surface. Empty means "use the catalogue's
+            # own distance"; when set it places any body (satellite, or e.g. the
+            # Moon around Mars) at host_radius + altitude.
+            "altitude": tk.StringVar(value=""),
             # Read-only display of the derived mu; kept in sync by traces.
             "mu_display": tk.StringVar(value=f"μ = {spec.mu:.6e} m^3/s^2"),
         }
@@ -368,58 +413,146 @@ class NBodyApp(BaseApp):
                 group, textvariable=fields["mu_display"], font=("", 9)
             ).pack(anchor="w", pady=(2, 0))
 
+    @staticmethod
+    def _host_label(index: int) -> str:
+        # Positional only: the label must not imply a fixed identity, so the
+        # Moon can be placed around any body (e.g. renamed to Mars).
+        return f"天体 {index + 1}"
+
     def _build_catalog_row(
         self, group: ttk.LabelFrame, index: int, fields: dict[str, tk.StringVar]
     ) -> None:
-        row = ttk.Frame(group)
-        row.pack(fill="x", pady=(0, 4))
-        ttk.Label(row, text="天体カタログ", font=("", 9)).pack(side="left")
+        # 周回対象: the combobox lists the preceding bodies by label while the
+        # "host" variable stores the selected *index*, so it is driven via
+        # ``current`` (not a textvariable) to keep label and index in step.
+        host_row = ttk.Frame(group)
+        host_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(host_row, text="周回対象", font=("", 9)).pack(side="left")
+        host_box = ttk.Combobox(
+            host_row,
+            values=[self._host_label(i) for i in range(index)],
+            state="readonly",
+            width=18,
+        )
+        host_box.pack(side="right")
+        host_box.current(min(self._host_index(fields), index - 1))
+
+        def on_host_selected(_event: object) -> None:
+            fields["host"].set(str(host_box.current()))
+            self._apply_catalog(index)
+
+        host_box.bind("<<ComboboxSelected>>", on_host_selected)
+
+        catalog_row = ttk.Frame(group)
+        catalog_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(catalog_row, text="天体カタログ", font=("", 9)).pack(side="left")
         catalog_box = ttk.Combobox(
-            row,
+            catalog_row,
             textvariable=fields["catalog"],
             values=list(CATALOG_LABELS),
             state="readonly",
             width=12,
         )
         catalog_box.pack(side="right")
-        catalog_box.bind(
-            "<<ComboboxSelected>>",
-            lambda _event, i=index: self._on_catalog_selected(i),
+
+        def on_catalog_selected(_event: object) -> None:
+            self._reset_altitude_default(fields)
+            self._apply_catalog(index)
+
+        catalog_box.bind("<<ComboboxSelected>>", on_catalog_selected)
+
+        altitude_row = ttk.Frame(group)
+        altitude_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(
+            altitude_row, text="高度 (m)（周回対象の地表から）", font=("", 9)
+        ).pack(side="left")
+        altitude_entry = ttk.Entry(
+            altitude_row, textvariable=fields["altitude"], width=12
+        )
+        altitude_entry.pack(side="right")
+        altitude_entry.bind(
+            "<Return>", lambda _event: self._apply_catalog(index)
         )
 
-    def _on_catalog_selected(self, index: int) -> None:
+    def _apply_catalog(self, index: int) -> None:
         """Load a catalogue body's density/radius and a circular orbit state.
 
-        The body is placed in a circular orbit about the central body (天体 1),
-        whose mu comes from the current density and radius, so an edited centre
-        is honoured. The ``（カスタム）`` sentinel leaves the inputs untouched.
+        The body is placed in a circular orbit about the currently selected
+        host body (周回対象), whose mu and position come from the live inputs,
+        so an edited host is honoured. The satellite takes its radius from the
+        altitude field instead. The ``（カスタム）`` sentinel leaves the inputs
+        untouched.
         """
         fields = self._body_vars[index]
         label = fields["catalog"].get()
         if label == CUSTOM_CATALOG_LABEL or index == 0:
             return
-        central = self._body_vars[0]
+        host_fields, host_index = self._host_fields(index)
         try:
-            central_radius = float(central["radius"].get())
-            central_density = float(central["density"].get())
+            host_radius = float(host_fields["radius"].get())
+            host_density = float(host_fields["density"].get())
+            host_state = tuple(
+                float(host_fields[field].get())
+                for field in gui_model.NBODY_STATE_FIELDS
+            )
         except ValueError:
             self._error_var.set(
-                "天体 1（中心）の体積密度と半径を先に数値で入力してください。"
+                f"天体 {host_index + 1}（周回対象）の密度・半径・状態を"
+                f"先に数値で入力してください。"
             )
             return
-        _name, _density, body_radius, _orbit = next(
-            entry for entry in gui_model.NBODY_CATALOG if entry[0] == label
-        )
-        central_mu = gui_model.nbody_mu(central_density, central_radius)
-        spec = gui_model.nbody_catalog_spec(
-            label, central_mu, central_radius + body_radius
-        )
+        try:
+            spec = gui_model.nbody_catalog_spec(
+                label,
+                host_state,
+                gui_model.nbody_mu(host_density, host_radius),
+                host_radius,
+                self._altitude(fields),
+            )
+        except (KeyError, ValueError) as exc:
+            self._error_var.set(f"カタログの軌道を設定できません: {exc}")
+            return
         self._error_var.set("")
         fields["name"].set(spec.name)
         fields["density"].set(repr(spec.density))
         fields["radius"].set(repr(spec.radius))
         for key, value in zip(gui_model.NBODY_STATE_FIELDS, spec.state):
             fields[key].set(repr(value))
+
+    @staticmethod
+    def _host_index(fields: dict[str, tk.StringVar]) -> int:
+        try:
+            return int(float(fields["host"].get()))
+        except ValueError:
+            return 0
+
+    def _host_fields(
+        self, index: int
+    ) -> tuple[dict[str, tk.StringVar], int]:
+        host_index = max(0, min(self._host_index(self._body_vars[index]), index - 1))
+        return self._body_vars[host_index], host_index
+
+    @staticmethod
+    def _altitude(fields: dict[str, tk.StringVar]) -> float | None:
+        try:
+            return float(fields["altitude"].get())
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _reset_altitude_default(fields: dict[str, tk.StringVar]) -> None:
+        """Seed the altitude field for the newly selected catalogue body.
+
+        The satellite keeps its catalogue altitude as an editable default;
+        ordinary bodies start empty (use their catalogue distance) so a stale
+        satellite altitude never leaks onto a planet.
+        """
+        if fields["catalog"].get() == gui_model.NBODY_SATELLITE:
+            fields["altitude"].set(
+                str(int(gui_model.NBODY_SATELLITE_ALTITUDE_DEFAULT))
+            )
+        else:
+            fields["altitude"].set("")
 
     def _add_body(self) -> None:
         # A blank, editable body; the per-body catalogue dropdown then seeds its
@@ -430,7 +563,10 @@ class NBodyApp(BaseApp):
             radius=1.0,
             state=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         )
-        self._body_vars.append(self._fields_from_spec(spec))
+        prior_names = [fields["name"].get() for fields in self._body_vars]
+        self._body_vars.append(
+            self._fields_from_spec(spec, len(self._body_vars), prior_names)
+        )
         self._rebuild_body_groups()
 
     def _remove_body(self) -> None:
@@ -498,6 +634,15 @@ class NBodyApp(BaseApp):
         if hasattr(self, "_play_button"):
             self._play_button.configure(text="再生")
 
+    @staticmethod
+    def _focus_label(index: int, name: str) -> str:
+        return f"天体 {index + 1}（{name}）"
+
+    def _on_focus_selected(self, *_args: object) -> None:
+        # The combobox is [重心（原点）, 天体 1, ...]; the chart uses -1 for the
+        # barycentre (origin) and a body index otherwise.
+        self._chart.set_focus(self._focus_box.current() - 1)
+
     # ------------------------------------------------------------------ actions
 
     def _read_conditions(self) -> NBodyConditions:
@@ -506,7 +651,10 @@ class NBodyApp(BaseApp):
             for fields in self._body_vars
         ]
         return gui_model.nbody_conditions_from_rows(
-            rows, self._dt_var.get(), self._time_var.get()
+            rows,
+            self._dt_var.get(),
+            self._time_var.get(),
+            adaptive=self._adaptive_var.get(),
         )
 
     def _run(self) -> None:
@@ -520,7 +668,8 @@ class NBodyApp(BaseApp):
             self._error_var.set(message)
             return
         self._error_var.set("")
-        self._warning_var.set("")
+        warning = gui_model.nbody_timestep_warning(conditions)
+        self._warning_var.set(warning or "")
         self._begin_run(conditions)
 
     def _worker(self, conditions: NBodyConditions) -> None:
@@ -537,8 +686,15 @@ class NBodyApp(BaseApp):
         self._stop_playback()
         self._last_outcome = outcome
         self._render_metric_rows(gui_model.nbody_result_metrics(outcome))
-        self._warning_var.set("")
-        self._chart.show(outcome)
+        self._focus_box.configure(
+            values=[BARYCENTRE_LABEL]
+            + [
+                self._focus_label(index, body.name)
+                for index, body in enumerate(outcome.conditions.bodies)
+            ]
+        )
+        self._focus_var.set(BARYCENTRE_LABEL)
+        self._chart.show(outcome, focus=-1)
         self._frame_scale.configure(to=max(len(outcome.frames) - 1, 0))
         self._frame_var.set(0)
         self._update_time_label(0)

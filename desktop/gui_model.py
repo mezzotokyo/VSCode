@@ -32,6 +32,12 @@ from ballistics import (  # noqa: E402
     EARTH_ATMOSPHERE_LAYERS,
     ProjectileSimulator,
     SimulationDiverged,
+    X,
+    Y,
+    Z,
+    VX,
+    VY,
+    VZ,
     atmospheric_drag,
     exponential_density,
     flat_altitude,
@@ -42,6 +48,7 @@ from ballistics import (  # noqa: E402
     tabulated_density,
 )
 from nbody import (  # noqa: E402
+    ADAPTIVE_STEPS_PER_PERIOD,
     Body as NBodyBody,
     NBodySimulator,
     SystemState,
@@ -152,6 +159,7 @@ DEFAULT_NBODY_METRIC_ROWS: tuple[tuple[str, str, str], ...] = (
     ("bodies", "天体数", "-"),
     ("elapsed", "経過時間", "-"),
     ("steps", "積分ステップ数", "-"),
+    ("timestep", "刻み幅", "-"),
     ("timed_out", "時間上限", "-"),
     ("energy_drift", "エネルギー相対変化", "-"),
     ("frames", "記録フレーム数", "-"),
@@ -609,42 +617,69 @@ def format_duration(seconds: float) -> str:
 # precision for physically intuitive, editable inputs.
 NBODY_G = 6.674_30e-11
 
-# Preset centres: the first body is the central body, placed at the origin at
-# rest; the remaining bodies are added from the catalogue on a circular orbit
-# about it. The presets themselves only fix the centre, so a scenario starts
-# with one body instead of a full configuration the user did not ask for.
+# Preset centres for the two single-centre scenarios: the first body is the
+# central body, placed at the origin at rest; the remaining bodies are added
+# from the catalogue on a circular orbit about it. These presets only fix the
+# centre, so a scenario starts with one body instead of a full configuration
+# the user did not ask for.
 NBODY_PRESET_CENTERS: dict[str, str] = {
     "sun_centered": "太陽",
     "earth_centered": "地球",
 }
 
-# Default timestep and time span per preset. The Sun-centred preset integrates
-# one Earth year at dt = 3600 s (inner planets resolve well); the Earth-centred
-# preset integrates one lunar period at dt = 60 s (a low orbit wants a finer dt).
+# The ``sun_earth_moon`` preset is the exception: it is a full three-body
+# configuration (the Sun at the origin, the Earth on a heliocentric circular
+# orbit, and the Moon on a geocentric circular orbit carried along by the
+# Earth), with the total linear momentum cancelled so the barycentre stays at
+# rest.
+SUN_EARTH_MOON = "sun_earth_moon"
+
+# Default timestep and time span per preset. The Sun-centred presets integrate
+# one Earth year at dt = 3600 s (the inner planets and the Moon resolve well);
+# the Earth-centred preset integrates one lunar period at dt = 60 s (a low
+# orbit wants a finer dt). The Moon's geocentric period (~27.3 d) is ~655 steps
+# at dt = 3600 s, and one Earth year stays under the step budget.
 SUN_CENTERED_DT = 3600.0
 SUN_CENTERED_MAX_TIME = 365.25 * 86400.0
 EARTH_CENTERED_DT = 60.0
 EARTH_CENTERED_MAX_TIME = 27.321_661 * 86400.0
 
-# Body catalogue for the per-body selector and the preset centre:
-# (display name, bulk density kg/m^3, mean radius m, default orbital radius m)
-# for the Sun, the eight planets, and the Moon. mu is derived from the density
-# and radius, never stored. The default orbital radius is the body's mean
-# distance from its natural primary (heliocentric for the planets, geocentric
-# for the Moon; the Sun's value is its distance from Earth, used when the Sun
-# is added around another centre). Selecting a body loads these into the
-# inputs, which stay freely editable afterwards.
-NBODY_CATALOG: tuple[tuple[str, float, float, float], ...] = (
-    ("太陽", 1408.0, 695_700_000.0, 1.496e11),
-    ("水星", 5427.0, 2_439_700.0, 5.791e10),
-    ("金星", 5243.0, 6_051_800.0, 1.082e11),
-    ("地球", 5514.0, 6_371_000.0, 1.496e11),
-    ("月", 3344.0, 1_737_400.0, 3.844e8),
-    ("火星", 3933.0, 3_389_500.0, 2.279e11),
-    ("木星", 1326.0, 69_911_000.0, 7.785e11),
-    ("土星", 687.0, 58_232_000.0, 1.434e12),
-    ("天王星", 1271.0, 25_362_000.0, 2.871e12),
-    ("海王星", 1638.0, 24_622_000.0, 4.495e12),
+NBODY_PRESET_TIMESTEPS: dict[str, tuple[float, float]] = {
+    "sun_centered": (SUN_CENTERED_DT, SUN_CENTERED_MAX_TIME),
+    "earth_centered": (EARTH_CENTERED_DT, EARTH_CENTERED_MAX_TIME),
+    SUN_EARTH_MOON: (SUN_CENTERED_DT, SUN_CENTERED_MAX_TIME),
+}
+
+# The artificial-satellite catalogue entry. Its catalogue "separation" is an
+# altitude above the host surface (not a distance from the host centre), so
+# :func:`nbody_orbit_separation` adds the host radius. Its mass is negligible
+# (a small density and a 1 m radius give a near-zero mu), so it barely
+# perturbs the host.
+NBODY_SATELLITE = "人工衛星"
+NBODY_SATELLITE_ALTITUDE_DEFAULT = 400_000.0
+
+# Body catalogue for the per-body selector and the preset centres:
+# (display name, natural primary, bulk density kg/m^3, mean radius m,
+#  default separation m) for the Sun, the eight planets, the Moon, and an
+# artificial satellite. ``mu`` is derived from the density and radius, never
+# stored. The separation is the body's mean distance from its natural primary
+# (heliocentric for the planets, geocentric for the Moon); the Sun has no
+# primary (its value is its distance from the Earth, used when the Sun is
+# added about another centre), and the satellite's value is an altitude above
+# the Earth's surface. Selecting a body loads these into the inputs, which
+# stay freely editable afterwards.
+NBODY_CATALOG: tuple[tuple[str, str, float, float, float], ...] = (
+    ("太陽", "", 1408.0, 695_700_000.0, 1.496e11),
+    ("水星", "太陽", 5427.0, 2_439_700.0, 5.791e10),
+    ("金星", "太陽", 5243.0, 6_051_800.0, 1.082e11),
+    ("地球", "太陽", 5514.0, 6_371_000.0, 1.496e11),
+    ("月", "地球", 3344.0, 1_737_400.0, 3.844e8),
+    ("火星", "太陽", 3933.0, 3_389_500.0, 2.279e11),
+    ("木星", "太陽", 1326.0, 69_911_000.0, 7.785e11),
+    ("土星", "太陽", 687.0, 58_232_000.0, 1.434e12),
+    ("天王星", "太陽", 1271.0, 25_362_000.0, 2.871e12),
+    ("海王星", "太陽", 1638.0, 24_622_000.0, 4.495e12),
+    (NBODY_SATELLITE, "地球", 1000.0, 1.0, NBODY_SATELLITE_ALTITUDE_DEFAULT),
 )
 
 
@@ -653,28 +688,67 @@ def nbody_mu(density: float, radius: float) -> float:
     return NBODY_G * density * (4.0 / 3.0) * math.pi * radius**3
 
 
-def _catalog_entry(name: str) -> tuple[float, float, float]:
-    """(density, radius, orbit_radius) of a body; raises ``KeyError``."""
-    for catalog_name, density, radius, orbit_radius in NBODY_CATALOG:
+def _catalog_entry(name: str) -> tuple[str, float, float, float]:
+    """``(primary, density, radius, separation)`` of a body; raises ``KeyError``."""
+    for catalog_name, primary, density, radius, separation in NBODY_CATALOG:
         if catalog_name == name:
-            return density, radius, orbit_radius
+            return primary, density, radius, separation
     raise KeyError(name)
+
+
+def nbody_catalog_primary(name: str) -> str:
+    """Natural primary of catalogue body ``name``.
+
+    Returns the empty string for the Sun (which orbits nothing) and for any
+    name outside the catalogue, so the GUI can query a hand-typed body safely.
+    """
+    try:
+        return _catalog_entry(name)[0]
+    except KeyError:
+        return ""
+
+
+def nbody_orbit_separation(
+    name: str, host_radius: float, altitude: float | None = None
+) -> float:
+    """Distance (m from the host centre) for catalogue body ``name``.
+
+    When ``altitude`` is given it is the height above the host's surface for
+    *any* body — host radius plus altitude — so e.g. the Moon can be placed
+    around Mars at a chosen height. When it is ``None`` the catalogue's own
+    value is used: the mean distance from the natural primary for an ordinary
+    body, or an altitude above the host surface for :data:`NBODY_SATELLITE`.
+    Raises ``KeyError`` for an unknown name.
+    """
+    _primary, _density, _radius, value = _catalog_entry(name)
+    if altitude is not None:
+        return host_radius + altitude
+    if name == NBODY_SATELLITE:
+        return host_radius + value
+    return value
 
 
 # Dropdown values and labels for the scenario presets.
 NBODY_PRESETS: tuple[tuple[str, str], ...] = (
     ("sun_centered", "太陽を中心とした多体問題"),
     ("earth_centered", "地球を中心とした多体問題"),
+    (SUN_EARTH_MOON, "太陽・地球・月（3体）"),
 )
 
 # Upper bound on the integration steps of one run. One lunar period at dt = 60 s
-# needs ~39k steps (< 1 s of wall time); anything beyond this is rejected with a
-# Japanese message instead of freezing the UI for minutes.
-MAX_NBODY_STEPS = 50_000
+# needs ~39k steps (< 1 s of wall time); exoplanet scenarios (a hot Jupiter over
+# many orbits) need an order of magnitude more, so the ceiling is set to 500k
+# (a few minutes of wall time at most), beyond which the run is rejected with a
+# Japanese message instead of freezing the UI for longer.
+MAX_NBODY_STEPS = 500_000
 
 # Frames are recorded every accepted step and then thinned to this many, so the
 # playback slider stays responsive and each redraw draws a bounded polyline.
 MAX_NBODY_FRAMES = 2000
+
+# Warn (do not block) when dt exceeds the tightest pair period divided by this,
+# i.e. when the fixed-step RK4 would take fewer than this many steps per orbit.
+NBODY_STEPS_PER_PERIOD_WARN = 20
 
 
 @dataclass(frozen=True)
@@ -703,10 +777,16 @@ class NBodyConditions:
     bodies: tuple[NBodySpec, ...]
     dt: float
     max_time: float
+    adaptive: bool = False
 
     @property
     def estimated_steps(self) -> int:
-        """Steps the run will take, ``ceil(max_time / dt)`` (dt is positive)."""
+        """Steps from the ceiling ``dt``, ``ceil(max_time / dt)`` (dt positive).
+
+        In adaptive mode this is a lower bound: the step may be shortened below
+        ``dt``. Use :func:`nbody_estimated_steps` for the budget estimate that
+        accounts for the adaptive limit.
+        """
         return math.ceil(self.max_time / self.dt)
 
 
@@ -733,6 +813,8 @@ class NBodyOutcome:
     frames: list[NBodyFrame]
     energy_initial: float
     energy_final: float
+    timestep_min: float | None = None
+    timestep_max: float | None = None
 
     @property
     def energy_drift_percent(self) -> float:
@@ -760,65 +842,122 @@ def nbody_circular_state(
     )
 
 
-def nbody_catalog_spec(
-    name: str, central_mu: float, min_separation: float = 0.0
-) -> NBodySpec:
-    """Catalogue body ``name`` on a circular orbit about a central body.
+def _add_states(base: tuple, offset: tuple) -> tuple:
+    """Per-component sum of two six-element states."""
+    return tuple(base[index] + offset[index] for index in range(6))
 
-    The catalogue's default orbital radius seeds the state; ``min_separation``
-    (typically the sum of the central and body radii) keeps the body clear of
-    the centre. Raises ``KeyError`` for an unknown name.
+
+def nbody_catalog_spec(
+    name: str,
+    host_state: tuple,
+    host_mu: float,
+    host_radius: float,
+    altitude: float | None = None,
+) -> NBodySpec:
+    """Catalogue body ``name`` on a circular orbit about a host body.
+
+    The orbit is seeded relative to the host's *current* state, so a satellite
+    can be placed about the Earth even when the system as a whole is
+    Sun-centred. The separation from the host centre is the catalogue default
+    (an altitude above the surface for the satellite, overridden by
+    ``altitude``), widened to keep the body clear of the host radius. Raises
+    ``KeyError`` for an unknown name.
     """
-    density, radius, orbit_radius = _catalog_entry(name)
-    separation = max(orbit_radius, min_separation)
+    _primary, density, radius, _value = _catalog_entry(name)
+    separation = nbody_orbit_separation(name, host_radius, altitude)
+    separation = max(separation, host_radius + radius)
+    relative = nbody_circular_state(separation, host_mu)
     return NBodySpec(
         name=name,
         density=density,
         radius=radius,
-        state=nbody_circular_state(separation, central_mu),
+        state=_add_states(host_state, relative),
     )
 
 
-def nbody_preset_bodies(preset: str) -> tuple[NBodySpec, ...]:
-    """Central body of a :data:`NBODY_PRESETS` scenario, at the origin at rest.
+def _catalog_center_body(name: str) -> NBodySpec:
+    """A catalogue body at the origin at rest, for use as a preset centre."""
+    _primary, density, radius, _value = _catalog_entry(name)
+    return NBodySpec(
+        name=name,
+        density=density,
+        radius=radius,
+        state=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+    )
 
-    The preset only fixes the centre (the Sun or the Earth); the remaining
-    bodies are added from the catalogue in the UI. Starting from the centre
-    alone keeps the scenario at the centre of mass (nothing drifts) until the
-    user adds a body of their choosing.
+
+def _cancel_total_momentum(
+    bodies: tuple[NBodySpec, ...],
+) -> tuple[NBodySpec, ...]:
+    """Shift every velocity by the barycentric velocity (total momentum -> 0).
+
+    The masses are the ``G = 1`` masses of :func:`nbody.total_energy` units, so
+    the centre of mass is ``sum(mu_i r_i) / sum(mu_i)``; subtracting its
+    velocity leaves a system whose barycentre stays at rest.
     """
+    total_mu = sum(body.mu for body in bodies)
+    vx = sum(body.mu * body.state[VX] for body in bodies) / total_mu
+    vy = sum(body.mu * body.state[VY] for body in bodies) / total_mu
+    vz = sum(body.mu * body.state[VZ] for body in bodies) / total_mu
+    return tuple(
+        NBodySpec(
+            name=body.name,
+            density=body.density,
+            radius=body.radius,
+            state=(
+                body.state[X],
+                body.state[Y],
+                body.state[Z],
+                body.state[VX] - vx,
+                body.state[VY] - vy,
+                body.state[VZ] - vz,
+            ),
+        )
+        for body in bodies
+    )
+
+
+def _sun_earth_moon_bodies() -> tuple[NBodySpec, ...]:
+    """The Sun, the Earth (heliocentric), and the Moon (geocentric)."""
+    sun = _catalog_center_body("太陽")
+    earth = nbody_catalog_spec("地球", sun.state, sun.mu, sun.radius)
+    moon = nbody_catalog_spec("月", earth.state, earth.mu, earth.radius)
+    return _cancel_total_momentum((sun, earth, moon))
+
+
+def nbody_preset_bodies(preset: str) -> tuple[NBodySpec, ...]:
+    """Initial bodies of a :data:`NBODY_PRESETS` scenario.
+
+    The two single-centre presets return their centre alone at the origin at
+    rest, so a scenario starts with one body instead of a full configuration
+    the user did not ask for; the remaining bodies are added from the catalogue
+    in the UI. The :data:`SUN_EARTH_MOON` preset instead returns a full
+    three-body configuration. Raises ``ValueError`` for an unknown preset.
+    """
+    if preset == SUN_EARTH_MOON:
+        return _sun_earth_moon_bodies()
     try:
         name = NBODY_PRESET_CENTERS[preset]
     except KeyError:
         raise ValueError(f"unknown nbody preset: {preset!r}") from None
-    density, radius, _orbit_radius = _catalog_entry(name)
-    return (
-        NBodySpec(
-            name=name,
-            density=density,
-            radius=radius,
-            state=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        ),
-    )
+    return (_catalog_center_body(name),)
 
 
 def nbody_preset_conditions(preset: str) -> NBodyConditions:
-    """Preset centre with a scenario-appropriate timestep and time span.
+    """Preset configuration with a scenario-appropriate timestep and time span.
 
-    The Sun-centred preset integrates one Earth year at ``dt = 3600 s``; the
-    Earth-centred preset integrates one lunar period at ``dt = 60 s`` (~39k
-    steps, under :data:`MAX_NBODY_STEPS`).
+    The Sun-centred presets integrate one Earth year at ``dt = 3600 s`` (the
+    Moon's geocentric period is ~655 steps, so the three-body preset resolves
+    it); the Earth-centred preset integrates one lunar period at ``dt = 60 s``
+    (~39k steps, under :data:`MAX_NBODY_STEPS`). Raises ``ValueError`` for an
+    unknown preset.
     """
     bodies = nbody_preset_bodies(preset)
-    if preset == "sun_centered":
-        return NBodyConditions(
-            bodies=bodies, dt=SUN_CENTERED_DT, max_time=SUN_CENTERED_MAX_TIME
-        )
-    if preset == "earth_centered":
-        return NBodyConditions(
-            bodies=bodies, dt=EARTH_CENTERED_DT, max_time=EARTH_CENTERED_MAX_TIME
-        )
-    raise ValueError(f"unknown nbody preset: {preset!r}")
+    try:
+        dt, max_time = NBODY_PRESET_TIMESTEPS[preset]
+    except KeyError:
+        raise ValueError(f"unknown nbody preset: {preset!r}") from None
+    return NBodyConditions(bodies=bodies, dt=dt, max_time=max_time)
 
 
 def nbody_number(text: str, label: str) -> float:
@@ -845,12 +984,15 @@ def nbody_conditions_from_rows(
     rows: list[NBodyRow],
     dt_text: str,
     time_text: str,
+    adaptive: bool = False,
 ) -> NBodyConditions:
     """Assemble :class:`NBodyConditions` from the raw entry-field strings.
 
-    Raises a Japanese :class:`ValueError` for any unparsable field or an empty
-    body list; an empty body name falls back to ``天体<n>``. Range checks
-    (step budget, duplicate positions) live in :func:`validate_nbody_conditions`.
+    ``adaptive`` mirrors the GUI checkbox and turns ``dt`` into a ceiling; it is
+    not a text field, so it is passed alongside the parsed values. Raises a
+    Japanese :class:`ValueError` for any unparsable field or an empty body list;
+    an empty body name falls back to ``天体<n>``. Range checks (step budget,
+    duplicate positions) live in :func:`validate_nbody_conditions`.
     """
     if not rows:
         raise ValueError("天体を 1 つ以上指定してください。")
@@ -871,7 +1013,26 @@ def nbody_conditions_from_rows(
         )
     dt = nbody_number(dt_text, "刻み幅 dt")
     max_time = nbody_number(time_text, "最大時間")
-    return NBodyConditions(bodies=tuple(bodies), dt=dt, max_time=max_time)
+    return NBodyConditions(
+        bodies=tuple(bodies), dt=dt, max_time=max_time, adaptive=adaptive
+    )
+
+
+def nbody_estimated_steps(conditions: NBodyConditions) -> int:
+    """Step-budget estimate, accounting for the adaptive timestep.
+
+    Fixed mode is exact, ``ceil(max_time / dt)``. In adaptive mode the step is
+    at most ``shortest_pair_period / ADAPTIVE_STEPS_PER_PERIOD``, so the ceiling
+    used here is the smaller of ``dt`` and that limit. Positions evolve, so the
+    limit can tighten later and the true count can exceed this estimate; it is a
+    budgeting figure, not a hard bound.
+    """
+    step = conditions.dt
+    if conditions.adaptive:
+        period = nbody_shortest_pair_period(conditions)
+        if period is not None:
+            step = min(step, period / ADAPTIVE_STEPS_PER_PERIOD)
+    return math.ceil(conditions.max_time / step)
 
 
 def validate_nbody_conditions(conditions: NBodyConditions) -> str | None:
@@ -890,7 +1051,7 @@ def validate_nbody_conditions(conditions: NBodyConditions) -> str | None:
             return f"天体{index + 1} の体積密度は正の数で指定してください。"
         if body.radius <= 0.0:
             return f"天体{index + 1} の半径は正の数で指定してください。"
-    steps = conditions.estimated_steps
+    steps = nbody_estimated_steps(conditions)
     if steps > MAX_NBODY_STEPS:
         return (
             f"推定ステップ数 {steps:,} が上限 {MAX_NBODY_STEPS:,} を超えます。"
@@ -906,12 +1067,69 @@ def validate_nbody_conditions(conditions: NBodyConditions) -> str | None:
     return None
 
 
+def _state_distance(first: tuple, second: tuple) -> float:
+    return math.sqrt(
+        (first[X] - second[X]) ** 2
+        + (first[Y] - second[Y]) ** 2
+        + (first[Z] - second[Z]) ** 2
+    )
+
+
+def nbody_shortest_pair_period(conditions: NBodyConditions) -> float | None:
+    """Shortest two-body period among the pairs, or ``None`` when undefined.
+
+    Each pair's period is the Kepler period of their mutual two-body motion,
+    ``T = 2*pi*sqrt(r^3 / (mu_i + mu_j))``. The smallest such period is the
+    tightest timescale the fixed-step integrator must resolve.
+    """
+    bodies = conditions.bodies
+    shortest: float | None = None
+    for i in range(len(bodies)):
+        for j in range(i + 1, len(bodies)):
+            separation = _state_distance(bodies[i].state, bodies[j].state)
+            combined_mu = bodies[i].mu + bodies[j].mu
+            if separation <= 0.0 or combined_mu <= 0.0:
+                continue
+            period = 2.0 * math.pi * math.sqrt(separation**3 / combined_mu)
+            if shortest is None or period < shortest:
+                shortest = period
+    return shortest
+
+
+def nbody_timestep_warning(conditions: NBodyConditions) -> str | None:
+    """A non-blocking warning when ``dt`` is too coarse for the tightest pair.
+
+    Classical RK4 wants several steps per period; ``dt`` above
+    ``shortest_period / NBODY_STEPS_PER_PERIOD_WARN`` is reported so the user
+    can refine it before a run diverges. Returns ``None`` when every pair is
+    resolved (or the system has a single body and no pair period), and also in
+    adaptive mode, where ``dt`` is only a ceiling and the step is shortened to
+    resolve the pair instead of warning.
+    """
+    if conditions.adaptive:
+        return None
+    period = nbody_shortest_pair_period(conditions)
+    if period is None:
+        return None
+    limit = period / NBODY_STEPS_PER_PERIOD_WARN
+    if conditions.dt <= limit:
+        return None
+    return (
+        f"刻み幅 dt が最短のペア周期（約 {period:,.0f} s）に対して大きすぎます。"
+        f"結果が発散する恐れがあります。dt を約 "
+        f"{period / NBODY_STEPS_PER_PERIOD_WARN:,.0f} s 以下にしてください。"
+    )
+
+
 def run_nbody(conditions: NBodyConditions) -> NBodyOutcome:
-    """Run one N-body simulation and record every accepted frame.
+    """Run one N-body simulation and record a bounded set of frames.
 
     Frames are captured through the core's ``on_step`` observation hook (the
-    system tuple is immutable, so a reference can be kept without copying) and
-    thinned to :data:`MAX_NBODY_FRAMES`. Raises whatever the core raises
+    system tuple is immutable, so a reference can be kept without copying). To
+    keep memory bounded at the high step budgets the cap allows, only every
+    ``stride``-th accepted step is recorded (``stride`` from the step estimate
+    and :data:`MAX_NBODY_FRAMES`); the final state is always kept and the result
+    is thinned to :data:`MAX_NBODY_FRAMES`. Raises whatever the core raises
     (:class:`SimulationDiverged` or ``ValueError``); the caller localises the
     message for display.
     """
@@ -920,24 +1138,44 @@ def run_nbody(conditions: NBodyConditions) -> NBodyOutcome:
         raise ValueError(message)
     bodies = tuple(NBodyBody(spec.mu, spec.state) for spec in conditions.bodies)
     simulator = NBodySimulator(
-        bodies, dt=conditions.dt, max_time=conditions.max_time
+        bodies,
+        dt=conditions.dt,
+        max_time=conditions.max_time,
+        adaptive=conditions.adaptive,
+    )
+    stride = max(
+        1, math.ceil(nbody_estimated_steps(conditions) / MAX_NBODY_FRAMES)
     )
     frames: list[NBodyFrame] = []
+    counter = 0
 
     def record(t: float, system: SystemState) -> None:
-        frames.append(
-            NBodyFrame(
-                t=t,
-                positions=tuple(
-                    (state[0], state[1], state[2]) for state in system
-                ),
+        nonlocal counter
+        if counter % stride == 0:
+            frames.append(
+                NBodyFrame(
+                    t=t,
+                    positions=tuple(
+                        (state[0], state[1], state[2]) for state in system
+                    ),
+                )
             )
-        )
+        counter += 1
 
     energy_initial = total_energy(simulator.bodies)
     simulator.run_simulation(on_step=record)
     energy_final = total_energy(simulator.bodies)
     raw = simulator.result()
+    if not frames or frames[-1].t < raw.elapsed_time:
+        frames.append(
+            NBodyFrame(
+                t=raw.elapsed_time,
+                positions=tuple(
+                    (state[0], state[1], state[2])
+                    for state in simulator.system
+                ),
+            )
+        )
     return NBodyOutcome(
         conditions=conditions,
         elapsed_time=raw.elapsed_time,
@@ -946,11 +1184,22 @@ def run_nbody(conditions: NBodyConditions) -> NBodyOutcome:
         frames=_downsample_frames(frames, MAX_NBODY_FRAMES),
         energy_initial=energy_initial,
         energy_final=energy_final,
+        timestep_min=raw.timestep_min,
+        timestep_max=raw.timestep_max,
     )
 
 
 def nbody_result_metrics(outcome: NBodyOutcome) -> list[tuple[str, str, str]]:
     """``(key, label, value)`` rows for the N-body results panel."""
+    if outcome.conditions.adaptive:
+        timestep_label = "最短刻み"
+    else:
+        timestep_label = "刻み幅"
+    timestep = (
+        f"{format_decimal(outcome.timestep_min)} s"
+        if outcome.timestep_min is not None
+        else "-"
+    )
     return [
         ("bodies", "天体数", str(len(outcome.conditions.bodies))),
         (
@@ -960,6 +1209,7 @@ def nbody_result_metrics(outcome: NBodyOutcome) -> list[tuple[str, str, str]]:
             f"（{format_duration(outcome.elapsed_time)}）",
         ),
         ("steps", "積分ステップ数", f"{outcome.steps:,}"),
+        ("timestep", timestep_label, timestep),
         ("timed_out", "時間上限", "yes" if outcome.timed_out else "no"),
         (
             "energy_drift",
@@ -1011,6 +1261,9 @@ __all__ = [
     "NBODY_CATALOG",
     "NBODY_G",
     "NBODY_PRESETS",
+    "NBODY_SATELLITE",
+    "NBODY_SATELLITE_ALTITUDE_DEFAULT",
+    "NBODY_STEPS_PER_PERIOD_WARN",
     "NBodyConditions",
     "NBodyFrame",
     "NBodyOutcome",
@@ -1042,11 +1295,15 @@ __all__ = [
     "nbody_catalog_spec",
     "nbody_circular_state",
     "nbody_conditions_from_rows",
+    "nbody_estimated_steps",
     "nbody_mu",
     "nbody_number",
+    "nbody_orbit_separation",
     "nbody_preset_bodies",
     "nbody_preset_conditions",
     "nbody_result_metrics",
+    "nbody_shortest_pair_period",
+    "nbody_timestep_warning",
     "orbital_speed",
     "orbital_time_span",
     "orbital_timestep",

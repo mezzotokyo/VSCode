@@ -124,7 +124,7 @@ python3 range_calculator/range_calc.py
 
 期待値:
 
-- テスト: `Ran 192 tests` / `OK`
+- テスト: `Ran 200 tests` / `OK`
 - 文字混入検査: `0 finding(s)`
 - `range_calc.py`: シミュレーション結果が表示される
 

@@ -218,8 +218,12 @@ RK4 のエネルギー漂移に注意が必要です。
 - 地面衝突（`y = 0`）はステップ内を**線形補間**して確定（軌道モードは
   `ground_collision=False` で衝突判定しない）
 - 発散検出・時間上限（既定 300 s）・初心者向けの数値ガードあり
-- **多体（N 体）**: 適応刻みを持たない**固定刻み RK4**。GUI 側では推定ステップ数を
-  50,000 に上限して確認する（`MAX_NBODY_STEPS`）
+- **多体（N 体）**: 既定は**固定刻み RK4**。`adaptive=True` では `dt` を上限とし、
+  最短ペア周期の `1 / ADAPTIVE_STEPS_PER_PERIOD`（既定 100 ステップ／周）まで各ステップを
+  短縮する（発散防止かつ 1 周あたりのエネルギー漂移を約 1e-6 に抑える。精度保証ではない）。
+  GUI 側では推定ステップ数を 500,000 に上限して確認し（`MAX_NBODY_STEPS`。系外惑星の
+  多数周回を想定）、`dt` が最短ペア周期に対して粗すぎる場合は発散を警告する
+  （`nbody_timestep_warning`。adaptive 時は短縮するため警告しない）
 
 ---
 
@@ -272,7 +276,8 @@ cd webapp && npm run dev
 
 Python 標準ライブラリの Tkinter（ttk）によるネイティブ GUI。追加の `pip`
 パッケージなしで動作し、PyInstaller で実行ファイル（弾道用・軌道用・多体用の 3 つ）を
-ビルドできます。**3 モデルすべて**に対応します（多体のみ GUI で操作できます）。
+ビルドできます。**3 モデルすべて**に対応します（弾道・軌道は CLI / Web もあるが、
+多体（N 体）は GUI 専用）。
 
 ```sh
 python3 desktop/ballistic_app.py   # 弾道ウィンドウ
@@ -286,11 +291,11 @@ python3 desktop/nbody_app.py       # 多体（N-body）ウィンドウ
 
 ## 5. 検証・品質
 
-- **物理コアのテスト**: 192 件（`test_range_calc.py` 58 件 + `test_adaptive_timestep.py` 39 件 + `test_orbital.py` 36 件 + `test_nbody.py` 59 件）
+- **物理コアのテスト**: 200 件（`test_range_calc.py` 58 件 + `test_adaptive_timestep.py` 39 件 + `test_orbital.py` 36 件 + `test_nbody.py` 67 件）
   - 解析解（`k=0`）との一致 / 収束性 / 着弾状態 / 回帰 / パラメータ検証 /
     シミュレータ契約 / 数値ガード / Magnus 揚力 / ニュートン・J2 重力 / 軌道要素 /
     密度・抗力モデル / 相互重力（N 体）
-- **desktop のテスト**: 112 件（GUI 純ロジック・軌跡チャート・多体（N-body）ロジック・webapp との対応漏れ検査）
+- **desktop のテスト**: 133 件（GUI 純ロジック・軌跡チャート・多体（N-body）ロジック・webapp との対応漏れ検査）
 - **webapp/server のテスト**: 17 件（`gravity_model` / `drag_model` / 軌道要素 / スピン API）
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`
   （`0 finding(s)` が正常。pre-commit フックに組み込み）

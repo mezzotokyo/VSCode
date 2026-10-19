@@ -95,8 +95,9 @@
   必要なときのみ刻みを短縮する。**縮小のみで延長は行わない**
   （実装: `ProjectileSimulator._next_timestep()`）。
 
-適応刻みモードは `ProjectileSimulator`（弾道・軌道）で利用できる。**N 体には適応刻みが存在
-しない**（→ 第26章）。
+適応刻みモードは `ProjectileSimulator`（弾道・軌道）で利用できる。**N 体
+（`NBodySimulator`）も `adaptive=True` で適応刻みを利用でき**、安定性上限の代わりに
+最短ペア周期を用いる（→ 第26章）。
 
 #### 3.2 安定性条件
 
@@ -192,14 +193,14 @@ dt_max ≈ 1.2405 s
 
 ### 5. テスト体制
 
-コアのテストは `range_calculator/` 直下にモジュール別に置く。総数は **192 件**。
+コアのテストは `range_calculator/` 直下にモジュール別に置く。総数は **200 件**。
 
 | テストファイル | 件数 | 対象 |
 |----------------|------|------|
 | `test_range_calc.py` | 58 | 弾道（解析解との一致・基準シナリオ・ガード・設定・Magnus） |
 | `test_adaptive_timestep.py` | 39 | 適応刻み（刻み上限・固定刻みとの一致・精度非保証・CLI） |
 | `test_orbital.py` | 36 | 軌道（重力場・円/楕円軌道・軌道要素・密度/抗力モデル） |
-| `test_nbody.py` | 59 | 多体（相互重力・2 体極限・保存量・ラグランジュ点・発散ガード） |
+| `test_nbody.py` | 67 | 多体（相互重力・2 体極限・保存量・ラグランジュ点・発散ガード・適応刻み） |
 
 主要なテストクラスは次のとおり。
 
@@ -208,7 +209,7 @@ dt_max ≈ 1.2405 s
 | `test_range_calc.py` | `AnalyticAgreementTests` / `ConvergenceTests` / `LandingStateTests` / `PhysicsTests` / `RegressionTests` / `SimulatorContractTests` / `ConfigurationTests` / `ScenarioLoadingTests` / `NumericalGuardTests` / `MagnusLiftTests` |
 | `test_adaptive_timestep.py` | `TimestepCeilingTests` / `AgreementWithFixedTimestepTests` / `StabilityAbsorptionTests` / `NoAccuracyClaimTests` / `LifecycleTests` / `EdgeCaseTests` / `CommandLineTests` |
 | `test_orbital.py` | `NewtonianGravityFieldTests` / `GravityFieldAgreementTests` / `CircularOrbitTests` / `EllipticalOrbitTests` / `FromStateTests` / `OrbitalElementTests` / `J2GravityFieldTests` / `SumFieldsTests` / `DensityModelTests` / `DragModelTests` |
-| `test_nbody.py` | `SingleBodyTests` / `MutualGravityFieldTests` / `SystemDerivativesTests` / `TwoBodyTests` / `KeplerLimitTests` / `ConservationTests` / `LagrangeTests` / `DiagnosticTests` / `ValidationTests` / `SingularityTests` / `DivergenceGuardTests` / `LifecycleTests` / `ContractTests` |
+| `test_nbody.py` | `SingleBodyTests` / `MutualGravityFieldTests` / `SystemDerivativesTests` / `TwoBodyTests` / `KeplerLimitTests` / `ConservationTests` / `LagrangeTests` / `DiagnosticTests` / `ValidationTests` / `SingularityTests` / `DivergenceGuardTests` / `LifecycleTests` / `AdaptiveTimestepTests` / `ResultTimestepTests` / `ContractTests` |
 
 テストはフラット import（`import ballistics` 等）を用いるため、カレントディレクトリに注意する
 こと（リポジトリルートまたは `range_calculator/` のどちらからでも実行できる）。
@@ -251,7 +252,7 @@ Windows では `python3` の代わりに `python` でもよい（Scoop 構成で
 - **デスクトップ GUI（`desktop` を使う場合のみ）**: 標準ライブラリの Tkinter のみで
   動作し、追加の `pip` パッケージは不要（実行ファイル化のビルド時のみ PyInstaller
   を使用）。起動・ビルドは `desktop/README.md` を参照。
-- **テスト**: 第5章のコマンドを実行し、192 件すべてがパスすることを確認する。
+- **テスト**: 第5章のコマンドを実行し、200 件すべてがパスすることを確認する。
   `desktop` のテストは `python3 -m unittest discover -s desktop/tests -p "test_*.py"`
   で実行する（`webapp` との対応漏れ検出を含む。`desktop/PLAN.md` §9 を参照）。
 - **文字混入検査**: `python3 tools/check_text_hygiene.py`（`0 finding(s)` が正常）。
@@ -856,12 +857,24 @@ a_i = \sum_{j != i} mu_j * (r_j - r_i) / |r_j - r_i|^3
 
 ### 26. 数値解法と制約
 
-`NBodySimulator` は**固定刻みの古典的 RK4**で 6N 元の連立 ODE を積分する。
+`NBodySimulator` は**古典的 RK4**で 6N 元の連立 ODE を積分する。
 
-- **適応刻みは存在しない**。`ProjectileSimulator` の安定性帯は抗力係数から導かれるもので、
-  N 体には対応するものがない（`nbody` モジュールの docstring のとおり）。
-- 刻み幅 `dt` はシステム中最も速いダイナミカル時間スケールに対して十分小さく選ぶこと。
-  目安は最も緊密な対の周期
+- **固定刻みモード（`adaptive=False`、既定）**: 刻み幅 `dt` は固定。
+- **適応刻みモード（`adaptive=True`）**: `dt` を**上限**とし、各ステップで最も緊密な対の
+  周期 `T = 2π√(r³ / (mu_i + mu_j))` から
+  `h = T / ADAPTIVE_STEPS_PER_PERIOD`（`ADAPTIVE_STEPS_PER_PERIOD = 100`）を計算し、
+  `h = min(dt, h)` とする。**縮小のみで延長は行わない**。周期は毎ステップの現在状態から
+  求めるため、接近時に自動で刻みが細かくなる。
+  - `ProjectileSimulator` の安定性帯は抗力係数から導かれるもので N 体には対応しないため、
+    N 体は**周期の 1/100 ステップ**という別の基準を用いる（RK4 のエネルギー漂移は
+    1 周期あたりのステップ数 `n` に対し概ね `n⁻⁴` で減るので、`n = 100` で
+    1 周あたり約 `1e-6` を狙う。精度の保証ではなく発散防止と実用的な保存性のため）。
+  - 単一の天体など対が無い系では短縮は起きず `dt` をそのまま使う。
+  - `result()` の `timestep_min` / `timestep_max` に実際に用いた刻みの最小・最大を返す
+    （固定刻みではどちらも `dt`。ただし最終ステップが `max_time` に合わせてトリムされた
+    場合は `timestep_min` のみ `dt` より小さくなる。未実行時は `None`）。
+- 固定刻みで使う場合、刻み幅 `dt` はシステム中最も速いダイナミカル時間スケールに対して
+  十分小さく選ぶこと。目安は最も緊密な対の周期
   `T = 2π√(r³ / (mu_i + mu_j))`。
 - 最終ステップは `max_time` を超えないようトリムされ、その後 `timed_out = True` となる
   （第3章 3.3 節の共通ガード）。
@@ -880,6 +893,7 @@ a_i = \sum_{j != i} mu_j * (r_j - r_i) / |r_j - r_i|^3
 | 天体 | `bodies: Sequence[Body]` | （必須。1 個以上） |
 | 刻み幅 | `dt` | `0.01` s |
 | 時間上限 | `max_time` | `None` → `DEFAULT_PARAMETERS.max_time`（300 s） |
+| 適応刻み | `adaptive` | `False`（`dt` を固定刻みとして使う） |
 | 速度ガード倍率 | `divergence_speed_factor` | `1000.0` |
 | 最小間隔 | `min_separation` | `0.0`（0 = 精密一致のみ拒否） |
 | 重力場 | `gravity_model` | `None` → `mutual_gravity(mus, min_separation)` |
@@ -898,7 +912,10 @@ a_i = \sum_{j != i} mu_j * (r_j - r_i) / |r_j - r_i|^3
   再計算する（冪等。`ProjectileSimulator` と同じ契約）。
 - `bodies` プロパティは現在の各天体を `Body(mu, state)` として返し、第28章の診断関数に
   渡せる。
-- `result()` は `SystemResult(elapsed_time, steps, timed_out)` を返す。
+- `result()` は `SystemResult(elapsed_time, steps, timed_out, timestep_min, timestep_max)`
+  を返す。`timestep_min` / `timestep_max` は実際に用いた刻みの最小・最大で、固定刻みでは
+  どちらも `dt`（最終ステップのトリム時のみ `timestep_min` が小さくなる）、未実行時は
+  `None`（適応刻みの効果を確認するための診断値）。
   弾道の `FlightResult`（第12章）とは異なり、着弾・衝突の概念を持たない。
 
 ### 28. 診断量
@@ -917,7 +934,7 @@ a_i = \sum_{j != i} mu_j * (r_j - r_i) / |r_j - r_i|^3
 
 ### 29. 検証基準（多体）
 
-すべて `test_nbody.py`（59 件）で固定する。
+すべて `test_nbody.py`（67 件）で固定する。
 
 #### 29.1 基礎場と微分
 
@@ -979,16 +996,32 @@ a_i = \sum_{j != i} mu_j * (r_j - r_i) / |r_j - r_i|^3
 - **モジュール境界**（`ContractTests`）— `nbody` はファイル I/O を行わない
   （`ballistics` と同じ境界）。
 
+#### 29.6 適応刻み（`AdaptiveTimestepTests` / `ResultTimestepTests`）
+
+- `adaptive=True` では各ステップの刻みが `dt` を超えない。
+- `dt` が最短ペア周期に対して粗い場合、適応刻みは `dt` より小さい刻みを選び、
+  ステップ数が増える。
+- `dt` が適応上限（`T / 100`）以下のときは固定刻みと一致する（`assertEqual` で
+  ステップ数・最終状態まで同一）。
+- 単一の天体など相互作用の無い系では短縮が起きず `dt` をそのまま使う。
+- 円軌道を 1 周期積分したときのステップ数は `ADAPTIVE_STEPS_PER_PERIOD` 以上になる。
+- 粗い `dt`（`dt ≫ T / 100`）でも適応刻みはエネルギー漂移を
+  `1e-5` 未満に抑える（1 周あたり概ね `1e-6`）。
+- `result()` の `timestep_min` / `timestep_max` は未実行時に `None`、固定刻みでは
+  どちらも `dt` を返す（最終ステップのトリム時を除く）。
+
 ### 30. 適用限界（多体）
 
 1. **点質量モデル** — 回転・潮汐・変形・内部構造は考慮しない。
 2. **衝突はモデル化しない** — 2 天体の完全一致は特異として拒否するが、衝突そのもの
    （合体・反発）は計算しない。`min_separation > 0` で接近そのものを失敗として扱える。
-3. **刻み幅の選択は呼び出し側の責任** — 適応刻みが無いため、安定性・精度は完全に `dt` に
-   依存する（第26章）。
+3. **固定刻みでは刻み幅の選択は呼び出し側の責任** — `adaptive=False` では安定性・精度は
+   完全に `dt` に依存する（第26章）。`adaptive=True` は最短ペア周期の `1/100` まで自動で
+   短縮するが、これは発散防止と実用的な保存性のための機構であり、**精度の保証ではない**。
 4. **RK4 は非シンプレクティック** — 長期積分では総エネルギーが漂流する。エネルギー保存が
-   目的なら `dt` を細かくするか、シンプレクティックな手法へ替えること
-   （第29章 29.3 節は刻み依存性を固定しているが、長期の保証はしない）。
+   目的なら `dt` を細かくするか適応刻みを有効にし、それでも不十分ならシンプレクティックな
+   手法へ替えること（第29章 29.3/29.6 節は刻み依存性と適応刻みの限界を固定しているが、
+   長期の保証はしない）。
 5. **診断量の単位系** — `G = 1`・質量 ≡ `mu` であるため、値そのものは SI ではない
    （第28章）。
 6. **外力なし** — 大気抵抗・潮汐力・第三天体による固定場の摂動は与えない
@@ -1006,7 +1039,10 @@ a_i = \sum_{j != i} mu_j * (r_j - r_i) / |r_j - r_i|^3
 
 ---
 
-*最終更新: 「弾道シミュレーション」の単一前提のままだった本書を 4 部構成
+*最終更新: 多体（第IV部）に任意の適応刻みを追加し、`NBodySimulator(adaptive=)`・
+`SystemResult.timestep_min/max`・最短ペア周期の `1/ADAPTIVE_STEPS_PER_PERIOD` 基準を
+第26・27・29・30章に追記、テスト数を 200 件（`test_nbody.py` 67 件）へ更新した（2026-10-19）。
+前回は「弾道シミュレーション」の単一前提のままだった本書を 4 部構成
 （第I部 共通基盤 / 第II部 弾道 / 第III部 軌道 / 第IV部 多体）に再構成した。第19章の軌道要素
 に空の見出ししか無く内容が第IV部側に置かれていた配置ミスを修正し、初期条件・数値解法・
 検証基準・適用限界・CLI を各モデルごとに分離した。あわせて軌道・多体の検証基準（第21章・
