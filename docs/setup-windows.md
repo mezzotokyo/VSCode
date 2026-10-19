@@ -124,7 +124,7 @@ python3 range_calculator/range_calc.py
 
 期待値:
 
-- テスト: `Ran 89 tests` / `OK`
+- テスト: `Ran 200 tests` / `OK`
 - 文字混入検査: `0 finding(s)`
 - `range_calc.py`: シミュレーション結果が表示される
 
@@ -189,7 +189,7 @@ OS 既定値のままにする**（macOS/Linux は `true`・Windows は `false` 
 
 ## 6. 関連文書
 
-- 物理モデル・テスト仕様: `range_calculator/SPEC.md`（第11章に開発環境と検証手順）
+- 物理モデル・テスト仕様: `range_calculator/SPEC.md`（第7章に開発環境と検証手順）
 - Web アプリの起動（Node.js の要件・PATH を含む）: `webapp/README.md`
 - デスクトップ GUI の起動・ビルド（Tkinter。追加の実行時依存なし）: `desktop/README.md`
 - Ollama 推論サーバー構築（macOS / Windows）: `docs/setup-ollama-server.md`

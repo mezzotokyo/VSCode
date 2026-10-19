@@ -1,6 +1,7 @@
-# desktop アプリ開発計画書 — 弾道シミュレーション（Windows/macOS ネイティブ GUI）
+# desktop アプリ開発計画書 — 物理シミュレーション（弾道・軌道・多体、Windows/macOS ネイティブ GUI）
 
-本計画書は、`range_calculator` の弾道シミュレーションを **デスクトップのネイティブ GUI** から
+本計画書は、`range_calculator` の物理シミュレーション（弾道・軌道・多体）を
+**デスクトップのネイティブ GUI** から
 操作・可視化する `desktop/` アプリの開発計画を定義する。実装に着手する前の合意事項として
 本ファイルを残し、実装後は `desktop/README.md` に利用手順を分離する。
 
@@ -9,11 +10,11 @@
 ## 1. 目的と背景
 
 - `range_calculator/`（物理コア）と `webapp/`（ブラウザ UI + stdlib API）は既に存在し、
-  物理計算は 133 件のテストで検証されている。
+  物理計算は 200 件のテストで検証されている。
 - 本計画の対象は、ブラウザを起動せずに単体で動く **デスクトップ GUI** を追加すること。
   物理計算は既存コアを再利用し、再実装しない。
 - 対象 OS は **Windows 11（主）と macOS（副）**。配布は **実行ファイル**（Windows は
-  `.exe`、macOS は `.app`。弾道用・軌道用の 2 つ）とする。
+  `.exe`、macOS は `.app`。弾道用・軌道用・多体用の 3 つ）とする。
 
 ---
 
@@ -69,14 +70,16 @@ desktop/
   app_common.py          # 共有 GUI 基盤（queue / スレッド / メトリクス描画 / スライダー）
   ballistic_app.py       # 弾道ウィンドウ（エントリポイント）
   orbital_app.py         # 軌道ウィンドウ（エントリポイント）
+  nbody_app.py           # 多体（N-body）ウィンドウ（エントリポイント・フレーム再生）
   gui_model.py           # GUI 非依存の純ロジック（プリセット・検証・simulate グルー）
-  trajectory_chart.py    # Canvas 製の軌跡チャート Widget（断面 x–y / 上面 x–z）
+  trajectory_chart.py    # Canvas 製の軌跡チャート Widget（断面 x–y / 上面 x–z / 多体）
   errors.py              # 英語例外→日本語（server.py:67 の localize_error と同型）
-  build.py               # PyInstaller を起動するビルドスクリプト（2 実行ファイル・追跡対象）
+  build.py               # PyInstaller を起動するビルドスクリプト（3 実行ファイル・追跡対象）
   README.md              # 起動・ビルド・mac 手順
   tests/
     test_gui_model.py    # 純ロジックの単体テスト（Tk 不要）
     test_trajectory_chart.py  # 軌跡チャートのスケーリング計算の単体テスト
+    test_nbody_gui_model.py   # 多体ロジック・等倍ドメイン・エラー変換の単体テスト
     test_agreement.py    # server.py / lib/sim.ts との対応漏れ検出
 ```
 
@@ -99,7 +102,7 @@ from ballistics import ProjectileSimulator, SimulationDiverged  # noqa: E402
 from physics_config import DEFAULT_PARAMETERS  # noqa: E402
 ```
 
-物理計算のロジックは再実装せず、既存の 133 件テストの庇護下に置く。軌跡は
+物理計算のロジックは再実装せず、既存の 200 件テストの庇護下に置く。軌跡は
 `run_simulation(on_step=record)` の観測フックで収集する（`server.py:140` と同じ）。
 
 ---
@@ -196,8 +199,8 @@ dt のバリデーション文言（`lib/sim.ts`）も移植する。
 
 | 種別 | コマンド | 期待 |
 |------|----------|------|
-| desktop 純ロジック | `python3 -m unittest discover -s desktop/tests -p "test_*.py"` | 全パス（62 件） |
-| 物理コア（既存） | `python3 -m unittest discover -s range_calculator -p "test_*.py"` | `Ran 133 tests` / `OK` |
+| desktop 純ロジック | `python3 -m unittest discover -s desktop/tests -p "test_*.py"` | 全パス（133 件） |
+| 物理コア（既存） | `python3 -m unittest discover -s range_calculator -p "test_*.py"` | `Ran 200 tests` / `OK` |
 | webapp API | `python3 -m unittest discover -s webapp/server -p "test_*.py"` | `Ran 17 tests` / `OK` |
 | 文字混入検査 | `python3 tools/check_text_hygiene.py` | `0 finding(s)` |
 
@@ -209,7 +212,7 @@ GUI そのものはヘッドレスで検証しにくいため、検証可能な�
 
 ## 11. 実行ファイル化（Windows / macOS）
 
-`desktop/build.py` が PyInstaller を起動する。弾道用・軌道用の 2 つを生成する。
+`desktop/build.py` が PyInstaller を起動する。弾道用・軌道用・多体用の 3 つを生成する。
 
 - `--onefile --windowed`
 - `--paths range_calculator`（非パッケージのコアモジュールを検出させる）
@@ -229,7 +232,7 @@ GUI そのものはヘッドレスで検証しにくいため、検証可能な�
 
 - `desktop/README.md` を追加（起動 `python3 desktop/ballistic_app.py` / `orbital_app.py`、
   ビルド手順、macOS 差異）。
-- `docs/setup-windows.md` と `range_calculator/SPEC.md` 第11章に desktop の一行を追記
+- `docs/setup-windows.md` と `range_calculator/SPEC.md` 第7章に desktop の一行を追記
   （Python のみで動作し、追加の実行時依存が無い旨）。
 
 ---
@@ -255,7 +258,7 @@ GUI そのものはヘッドレスで検証しにくいため、検証可能な�
 
 ## 15. 拡張: 重力・抗力モデルと軌道
 
-`range_calculator` の摂動拡張（SPEC.md §2.2 / §2.2(b)）に GUI を追随させた。
+`range_calculator` の摂動拡張（SPEC.md 第17章 / 第18章）に GUI を追随させた。
 
 - 重力モデルは `constant`（地表） / `newtonian`（中心重力） / `j2`（+地球扁平）。
   中心重力では初期状態を **円軌道**（半径 `r`、速度 `sqrt(mu/r)`、位置は +x 軸上）
@@ -276,4 +279,76 @@ GUI そのものはヘッドレスで検証しにくいため、検証可能な�
 
 ---
 
-*最終更新: 初版作成（2026-10-10）/ 摂動・軌道対応を追記（2026-10-17）*
+## 16. 拡張: 多体（N-body）ウィンドウ
+
+`range_calculator/nbody.py`（相互重力・固定刻み RK4 と任意の適応刻み、67 件テスト）に GUI を追加した。
+**デスクトップ専用**で、webapp に対応する画面・API は無い（`test_agreement.py` の
+対象外。`errors.py` の多体パターンも同様にデスクトップのみ）。
+
+- **入力（ハイブリッド）**: プリセット
+  （`gui_model.NBODY_PRESETS`: 太陽を中心とした多体問題 / 地球を中心とした多体問題 /
+  太陽・地球・月（3体））で開始し、場面に合った dt・最大時間を一括入力した後、
+  天体ごとの名前・体積密度・半径・初期状態
+  （x, y, z, vx, vy, vz）と刻み幅・最大時間を**自由入力で編集**できる。
+  1 つ目は中心天体で、2 つ目以降は天体ごとの **周回対象**（先行する天体を位置で
+  指定。ラベルは「天体 1」「天体 2」…で天体名は付けない）と **天体カタログ**
+  （太陽・惑星・月・人工衛星）から選ぶと、密度・半径と周回対象まわりの
+  円軌道初期条件（相対位置 `(+r, 0, 0)`・相対速度 `(0, sqrt(μ_host/r), 0)`）が
+  テキストボックスへロードされる（選択後も自由編集可。天体の追加・削除も可）。
+  - **μ の導出**: μ は直接入力せず `nbody_mu(density, radius) = G·ρ·(4/3)πr³` で計算
+    （`NBODY_G = 6.67430e-11`）。実測 GM との誤差は最大 0.13 %（太陽）で許容する。
+  - **カタログの既定軌道半径**: 各天体の主天体（`nbody_catalog_primary`。惑星は
+    太陽、月・人工衛星は地球）からの平均距離。周回対象の μ から円軌道速度を計算し、
+    両者の半径の合計より内側にはならないよう最小間隔を確保する
+    （`nbody_circular_state` / `nbody_catalog_spec` / `nbody_orbit_separation`）。
+  - **高度と局所軌道**: 周回対象を先行する任意の天体から選べるため、太陽中心の系の
+    まま地球のまわりに衛星を置ける。**高度 (m)** は周回対象の地表からの高さで、
+    `nbody_orbit_separation` は **任意の天体** について、高度が指定されていれば
+    軌道半径を「周回対象の半径＋高度」とする（例: 火星の周りに月を任意の高さで置く。
+    空欄ならカタログ既定の距離）。人工衛星カタログは高度既定 400 km をプリフィルし、
+    他の天体を選ぶと高度欄は空になる。配置は周回対象の *現在の* 状態（座標・速度）に
+    相対円軌道を加算する。3 体プリセットは `_cancel_total_momentum` で運動量相殺して
+    配置する。
+  - 太陽中心: 中心 = 太陽、dt=3600 s、最大時間 = 1 地球年
+  - 地球中心: 中心 = 地球、dt=60 s、最大時間 = 月の公転周期 1 回分
+    （約 27.3 日、約 39k ステップ < 1 秒）
+  - 太陽・地球・月（3体）: 運動量相殺した 3 体、dt=3600 s、最大時間 = 1 地球年
+  - **adaptive 刻み**（`nbody_app` のチェックボックス → `NBodyConditions.adaptive`）:
+    コアの `NBodySimulator(adaptive=True)` に渡すと `dt` が上限になり、各ステップを
+    `ADAPTIVE_STEPS_PER_PERIOD`（既定 100）で割った最短ペア周期まで短縮する。RK4 の
+    エネルギー漂移はステップ数／周の -4 乗で効くため、固定刻みの発散しきい値
+    （20 ステップ／周）より十分大きく取り、系外惑星の多数周回でも 1 周あたり約 1e-6
+    に抑える（発散防止かつ精度保証はしない）。刻みは `_adaptive_timestep` が
+    各ステップで現在位置から求め、`min(dt, その上限)` とするため決して延びない。
+- **記録と再生**: `run_simulation(on_step=record)` で `(t, 各天体の x,y,z)` を
+  フレーム記録する。ステップ上限を上げたため毎ステップは記録せず、推定ステップ数と
+  `MAX_NBODY_FRAMES` から間隔 `stride` を決めて間引き記録し（最終フレームは必ず保持）、
+  その後 2000 フレームに間引く（`MAX_NBODY_FRAMES`）。メモリは上限に依らず一定。
+  完了後、スライダーで任意フレームへシーク、「再生」で約 12 秒のループ再生。
+  ドメインは全フレームから一度だけ計算し、**縦横等倍**（`equal_aspect_domain`）で
+  軌道の形を崩さない（スクロール中の表示ジャンプもしない）。**表示中心**
+  （`NBodyChart.set_focus`。重心（原点）または任意の天体）を選ぶと、その天体を
+  基準に全天体を描画し直し、太陽系の中の地球周回のような小さな軌道も見えるようにする。
+- **入力検証**（`validate_nbody_conditions`、日本語メッセージ）: dt / 最大時間は正の数、
+  体積密度・半径は正の数、推定ステップ数の上限 500,000（`MAX_NBODY_STEPS`。adaptive 時は
+  `nbody_estimated_steps` が最短ペア周期の上限も見込む）、天体の位置重複拒否。
+  dt が最短のペア周期 `T = 2π√(r³/(μ_i+μ_j))` に対して粗すぎる場合は、
+  `nbody_timestep_warning` が発散を警告する（`NBODY_STEPS_PER_PERIOD_WARN = 20`。
+  実行は妨げない。adaptive 時は刻みを短縮するため警告しない）。
+  コア例外（`SimulationDiverged` 等）は `errors.localize_error` で日本語化して表示。
+- **レイアウト**: プリセット・刻み幅・最大時間・天体の追加/削除・実行・エラー表示は
+  **スクロールしない固定領域**（グリッド配置）に置き、天体グループのみを
+  `_ScrolledFrame` でスクロールさせる。天体リストの行に `weight` を与えることで、
+  ウィンドウを縮めても実行ボタン・エラーメッセージが画面外へ出ない。
+- **Result**: 天体数 / 経過時間 / 積分ステップ数 / 最短刻み（adaptive 時）/ 刻み幅
+  （固定刻み時） s / 時間上限 / エネルギー相対変化
+  （`total_energy` の G=1 単位での相対ドリフトのみ表示）/ 記録フレーム数。
+  経過時間は秒（`format_grouped` で桁区切り）に加え「D日H時間M分S秒」
+  （`format_duration`。1 日未満は日を省略）でも併記し、積分ステップ数・記録フレーム数も
+  桁区切りで表示する。
+- スレッド設計は §8 と同一（`app_common.BaseApp` を継承し `_worker` のみ
+  `gui_model.run_nbody` に差し替え）。
+
+---
+
+*最終更新: 初版作成（2026-10-10）/ 摂動・軌道対応を追記（2026-10-17）/ 多体（N-body）ウィンドウを追記（2026-10-18）/ 多体プリセットを太陽中心・地球中心＋天体カタログ選択へ変更（2026-10-18）/ 操作部の固定配置・経過時間の日時分秒表示・桁区切り（2026-10-18）/ 3 体プリセット・周回対象選択・人工衛星の高度投入・表示中心切替・dt 警告を追記（2026-10-19）/ 周回対象ラベルを位置表示に変更し高度を任意天体へ一般化（2026-10-19）/ 多体のステップ上限を 500,000 に引き上げ adaptive 刻みを追加（2026-10-19）*

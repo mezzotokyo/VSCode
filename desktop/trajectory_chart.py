@@ -11,7 +11,7 @@ import math
 import tkinter as tk
 from typing import Sequence
 
-from gui_model import SimulationOutcome, TrajectoryPoint
+from gui_model import NBodyFrame, NBodyOutcome, SimulationOutcome, TrajectoryPoint
 
 MARGIN = {"top": 28, "right": 28, "bottom": 52, "left": 68}
 
@@ -31,6 +31,18 @@ COLOR_LANDING = "#eb5757"
 COLOR_BODY = "#52606d"
 COLOR_BACKGROUND = "#ffffff"
 COLOR_BORDER = "#d9e2ec"
+
+# Per-body colours for the N-body chart, cycled when a system has more bodies.
+NBODY_COLORS: tuple[str, ...] = (
+    "#2f80ed",
+    "#f2994a",
+    "#27ae60",
+    "#eb5757",
+    "#9b51e0",
+    "#f2c94c",
+    "#56ccf2",
+    "#6fcf97",
+)
 
 
 def nice_step(value_range: float, count: int) -> float:
@@ -123,6 +135,43 @@ def chart_domain(
     span = max(x_hi - x_lo, y_hi - y_lo, 1.0)
     pad = span * 0.06
     return x_lo - pad, x_hi + pad, y_lo - pad, y_hi + pad
+
+
+def equal_aspect_domain(
+    xs: Sequence[float],
+    ys: Sequence[float],
+    plot_width: float,
+    plot_height: float,
+    pad_fraction: float = 0.06,
+) -> tuple[float, float, float, float]:
+    """Bounds ``(x_lo, x_hi, y_lo, y_hi)`` fitting points at an equal scale.
+
+    N-body orbits must keep their shape (a circle stays a circle), so after
+    padding both spans by ``pad_fraction`` the smaller units-per-pixel side is
+    expanded until both axes share one: ``span_x / plot_width`` equals
+    ``span_y / plot_height``. An empty input gets a unit box; a degenerate
+    span (all points equal on an axis) is widened to 1 m before padding.
+    """
+    if not xs or not ys:
+        return -1.0, 1.0, -1.0, 1.0
+    x_lo, x_hi = min(xs), max(xs)
+    y_lo, y_hi = min(ys), max(ys)
+    span_x = max(x_hi - x_lo, 1.0)
+    span_y = max(y_hi - y_lo, 1.0)
+    span_x *= 1.0 + 2.0 * pad_fraction
+    span_y *= 1.0 + 2.0 * pad_fraction
+    if plot_width > 0 and plot_height > 0:
+        scale = max(span_x / plot_width, span_y / plot_height)
+        span_x = max(span_x, scale * plot_width)
+        span_y = max(span_y, scale * plot_height)
+    x_center = (x_lo + x_hi) / 2.0
+    y_center = (y_lo + y_hi) / 2.0
+    return (
+        x_center - span_x / 2.0,
+        x_center + span_x / 2.0,
+        y_center - span_y / 2.0,
+        y_center + span_y / 2.0,
+    )
 
 
 class TrajectoryChart(tk.Canvas):
@@ -281,6 +330,214 @@ class TrajectoryChart(tk.Canvas):
             16,
             top + plot_height / 2,
             text="lateral z (m)" if self._view == VIEW_XZ else "height y (m)",
+            fill=COLOR_AXIS_LABEL,
+            angle=90,
+            anchor="center",
+        )
+
+
+class NBodyChart(tk.Canvas):
+    """A canvas rendering an N-body run frame by frame.
+
+    The playback slider drives :meth:`set_frame`: each body draws its trail up
+    to the current frame, a marker at its current position, and a colour
+    legend so several bodies stay distinguishable. The domain is computed once
+    in :meth:`show` over *all* frames at an equal aspect scale, so the view does
+    not jump or distort while scrubbing. :meth:`set_focus` re-centres the view
+    on a chosen body (positions are drawn relative to it) so a small orbit next
+    to a much larger one stays visible.
+    """
+
+    marker_radius = 6
+
+    def __init__(self, master: tk.Misc, **kwargs: object) -> None:
+        super().__init__(
+            master,
+            background=COLOR_BACKGROUND,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            **kwargs,
+        )
+        self._frames: Sequence[NBodyFrame] = ()
+        self._names: tuple[str, ...] = ()
+        self._index = 0
+        # Display centre: -1 keeps the origin (the barycentre); an index centres
+        # the view on that body's instantaneous position.
+        self._focus = -1
+        self._xs: list[float] = []
+        self._ys: list[float] = []
+        self.bind("<Configure>", lambda _event: self._redraw())
+
+    @property
+    def frame_count(self) -> int:
+        """Number of recorded frames of the loaded run."""
+        return len(self._frames)
+
+    @property
+    def current_index(self) -> int:
+        """Index of the frame currently displayed."""
+        return self._index
+
+    def show(self, outcome: NBodyOutcome, focus: int = -1) -> None:
+        """Load a completed run and display its first frame.
+
+        ``focus`` selects the display centre: ``-1`` keeps the origin (the
+        barycentre), any other value centres the view on that body so its
+        motion fills the plot however small it is next to the rest of the
+        system.
+        """
+        self._frames = tuple(outcome.frames)
+        self._names = tuple(spec.name for spec in outcome.conditions.bodies)
+        self._index = 0
+        self._focus = max(-1, min(int(focus), len(self._names) - 1))
+        self._recompute_domain()
+        self._redraw()
+
+    def set_focus(self, index: int) -> int:
+        """Centre the view on a body (``-1`` for the origin); returns it."""
+        clamped = max(-1, min(int(index), len(self._names) - 1))
+        if clamped != self._focus:
+            self._focus = clamped
+            self._recompute_domain()
+            self._redraw()
+        return clamped
+
+    def _relative(self, frame: NBodyFrame, body_index: int) -> tuple[float, float]:
+        position = frame.positions[body_index]
+        if 0 <= self._focus < len(frame.positions):
+            origin = frame.positions[self._focus]
+            return position[0] - origin[0], position[1] - origin[1]
+        return position[0], position[1]
+
+    def _recompute_domain(self) -> None:
+        xs: list[float] = []
+        ys: list[float] = []
+        for frame in self._frames:
+            for body_index in range(len(frame.positions)):
+                x, y = self._relative(frame, body_index)
+                xs.append(x)
+                ys.append(y)
+        self._xs = xs
+        self._ys = ys
+
+    def set_frame(self, index: int) -> int:
+        """Jump to ``index`` (clamped to the recorded frames); returns it."""
+        if not self._frames:
+            return 0
+        clamped = max(0, min(int(index), len(self._frames) - 1))
+        if clamped != self._index:
+            self._index = clamped
+            self._redraw()
+        return clamped
+
+    def clear(self) -> None:
+        """Remove the current run."""
+        self._frames = ()
+        self._names = ()
+        self._index = 0
+        self._focus = -1
+        self._xs = []
+        self._ys = []
+        self._redraw()
+
+    def _redraw(self) -> None:
+        self.delete("all")
+        width = self.winfo_width()
+        height = self.winfo_height()
+        plot_width = width - MARGIN["left"] - MARGIN["right"]
+        plot_height = height - MARGIN["top"] - MARGIN["bottom"]
+        if plot_width <= 1 or plot_height <= 1 or not self._frames:
+            return
+
+        x_lo, x_hi, y_lo, y_hi = equal_aspect_domain(
+            self._xs, self._ys, plot_width, plot_height
+        )
+
+        def sx(x: float) -> float:
+            return MARGIN["left"] + (x - x_lo) / (x_hi - x_lo) * plot_width
+
+        def sy(y: float) -> float:
+            return MARGIN["top"] + plot_height - (y - y_lo) / (y_hi - y_lo) * plot_height
+
+        left = MARGIN["left"]
+        top = MARGIN["top"]
+        right = left + plot_width
+        bottom = top + plot_height
+
+        y_axis = sy(0.0) if y_lo <= 0.0 <= y_hi else bottom
+        x_axis = sx(0.0) if x_lo <= 0.0 <= x_hi else left
+
+        for value in axis_ticks(y_lo, y_hi, 5):
+            y = sy(value)
+            self.create_line(left, y, right, y, fill=COLOR_GRID)
+            self.create_text(
+                x_axis - 8, y, text=f"{value:.0f}", fill=COLOR_TICK, anchor="e"
+            )
+
+        for value in axis_ticks(x_lo, x_hi, 6):
+            x = sx(value)
+            self.create_line(x, top, x, bottom, fill=COLOR_GRID)
+            self.create_text(
+                x, y_axis + 14, text=f"{value:.0f}", fill=COLOR_TICK, anchor="n"
+            )
+
+        self.create_line(left, y_axis, right, y_axis, fill=COLOR_AXIS, width=2)
+        self.create_line(x_axis, top, x_axis, bottom, fill=COLOR_AXIS, width=2)
+
+        frame = self._frames[self._index]
+        radius = self.marker_radius
+        for body_index, name in enumerate(self._names):
+            color = NBODY_COLORS[body_index % len(NBODY_COLORS)]
+            coords: list[float] = []
+            for past in self._frames[: self._index + 1]:
+                if body_index < len(past.positions):
+                    rx, ry = self._relative(past, body_index)
+                    coords.extend((sx(rx), sy(ry)))
+            if len(coords) >= 4:
+                self.create_line(*coords, fill=color, width=2)
+            if body_index < len(frame.positions):
+                rx, ry = self._relative(frame, body_index)
+                center_x, center_y = sx(rx), sy(ry)
+                self.create_oval(
+                    center_x - radius,
+                    center_y - radius,
+                    center_x + radius,
+                    center_y + radius,
+                    fill=color,
+                    outline=COLOR_BACKGROUND,
+                    width=2,
+                )
+                self.create_text(
+                    center_x + radius + 4,
+                    center_y,
+                    text=name,
+                    fill=color,
+                    anchor="w",
+                    font=("", 10, "bold"),
+                )
+
+        for body_index, name in enumerate(self._names):
+            color = NBODY_COLORS[body_index % len(NBODY_COLORS)]
+            legend_y = top + 12 + body_index * 16
+            self.create_oval(
+                left + 8, legend_y - 4, left + 16, legend_y + 4,
+                fill=color, outline=COLOR_BACKGROUND,
+            )
+            self.create_text(
+                left + 22, legend_y, text=name, fill=COLOR_AXIS_LABEL, anchor="w"
+            )
+
+        self.create_text(
+            left + plot_width / 2,
+            height - 10,
+            text="horizontal distance x (m)",
+            fill=COLOR_AXIS_LABEL,
+            anchor="s",
+        )
+        self.create_text(
+            16,
+            top + plot_height / 2,
+            text="vertical distance y (m)",
             fill=COLOR_AXIS_LABEL,
             angle=90,
             anchor="center",

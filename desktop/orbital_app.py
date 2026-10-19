@@ -28,7 +28,9 @@ class OrbitalApp(BaseApp):
         super().__init__(
             title="Range Calculator Desktop — 軌道 (Orbital)",
             geometry="1020x760",
-            minsize=(780, 620),
+            # 620 left the trajectory chart at 125 of its 267 px; 660 keeps it
+            # above half height while still letting the window be shrunk.
+            minsize=(780, 660),
         )
 
         self._gravity_var = tk.StringVar(

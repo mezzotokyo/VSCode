@@ -29,7 +29,9 @@ class BallisticApp(BaseApp):
         super().__init__(
             title="Range Calculator Desktop — 弾道 (Ballistic)",
             geometry="1020x860",
-            minsize=(780, 680),
+            # 680 left the trajectory chart at 51 of its 267 px; 780 keeps it
+            # above half height while still letting the window be shrunk.
+            minsize=(780, 780),
         )
 
         self._velocity_var = tk.DoubleVar(value=gui_model.DEFAULT_VELOCITY_KMPH)
