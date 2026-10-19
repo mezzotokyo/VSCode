@@ -115,6 +115,20 @@ class _ScrolledFrame(ttk.Frame):
     def _on_mousewheel(self, event: tk.Event) -> None:
         self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
+    def fit_content_width(self) -> None:
+        """Make the canvas at least as wide as its content needs.
+
+        A Tk canvas has no natural width — its ``-width`` default is ``10c``
+        (about 378 px here) — and ``inner`` is clamped to the canvas, so a row
+        of three 131 px entry fields would be compressed and truncate its
+        values. Widening the window does not help on its own: the column this
+        sits in is sticky ``nsw`` and never grows with the window.
+        """
+        self.update_idletasks()
+        required = self.inner.winfo_reqwidth()
+        if required > self.canvas.winfo_width():
+            self.canvas.configure(width=required)
+
 
 class NBodyApp(BaseApp):
     """The mutual-gravity N-body window."""
@@ -123,7 +137,9 @@ class NBodyApp(BaseApp):
         super().__init__(
             title="Range Calculator Desktop — 多体 (N-body)",
             geometry="1200x800",
-            minsize=(900, 650),
+            # 650 collapsed the body list to 3 px (160 requested); 780 leaves it
+            # 133 px so the per-body inputs stay reachable.
+            minsize=(900, 780),
         )
 
         self._preset_var = tk.StringVar(value=gui_model.NBODY_PRESETS[0][1])
@@ -412,6 +428,9 @@ class NBodyApp(BaseApp):
             ttk.Label(
                 group, textvariable=fields["mu_display"], font=("", 9)
             ).pack(anchor="w", pady=(2, 0))
+        # The row width depends on which fields are present, so the canvas is
+        # re-measured after every rebuild (preset, add, remove).
+        self._controls_scroll.fit_content_width()
 
     @staticmethod
     def _host_label(index: int) -> str:
