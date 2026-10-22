@@ -1,41 +1,40 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
+    "lmstudio": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LM Studio (iride)",
+      "options": {
+        "baseURL": "http://192.168.20.34:1234/v1"
+      },
+      "models": {
+        "google/gemma-4-e4b": {
+          "name": "Gemma 4 E4B (LM Studio)",
+          "limit": {
+            "context": 131072,
+            "output": 8192
+          }
+        }
+      }
+    },
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Ollama (local)",
+      "name": "Ollama (iride)",
       "options": {
         "baseURL": "http://192.168.20.34:11434/v1"
       },
       "models": {
-        "gemma4:e4b-mlx": {
-          "name": "Gemma 4 E4B (Ollama)"
-        },
-        "gemma4:e4b-mlx-64k": {
-          "name": "Gemma 4 E4B (64K)",
-          "limit": {
-            "context": 65536,
-            "output": 8192
-          }
-        },
-        "gemma4:12b-mlx-32k": {
+        "gemma4:12b-nvfp4-32k": {
           "name": "Gemma 4 12B (32K)",
           "limit": {
             "context": 32768,
             "output": 8192
           }
         },
-        "qwen3.5:4b-mlx-64k": {
-          "name": "Qwen3.5 4B (64K)",
+        "qwen3.5:9b-nvfp4-64k": {
+          "name": "Qwen3.5 9B (64K)",
           "limit": {
             "context": 65536,
-            "output": 8192
-          }
-        },
-        "qwen3:8b-40k": {
-          "name": "Qwen3 8B (40K)",
-          "limit": {
-            "context": 40960,
             "output": 8192
           }
         }
