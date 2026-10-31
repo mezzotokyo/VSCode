@@ -47,7 +47,7 @@ launchctl bootout gui/$(id -u)/com.ollama.ollama 2>/dev/null || true
 #### (3) LaunchDaemon を作成（常駐化）
 システム領域の LaunchDaemon として登録します。
 
-`/Library/LaunchDaemons/com.ollama.server.plist` を作成します。
+`/Library/LaunchDaemons/com.ollama.serve.plist` を作成します。
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -87,9 +87,9 @@ launchctl bootout gui/$(id -u)/com.ollama.ollama 2>/dev/null || true
 所有者・権限を設定してロードします。
 
 ```sh
-sudo chown root:wheel /Library/LaunchDaemons/com.ollama.server.plist
-sudo chmod 644 /Library/LaunchDaemons/com.ollama.server.plist
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.ollama.server.plist
+sudo chown root:wheel /Library/LaunchDaemons/com.ollama.serve.plist
+sudo chmod 644 /Library/LaunchDaemons/com.ollama.serve.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.ollama.serve.plist
 ```
 
 #### (4) 確認
@@ -106,8 +106,8 @@ curl http://<サーバーIP>:11434/api/version
 常駐解除・停止:
 
 ```sh
-sudo launchctl bootout system /Library/LaunchDaemons/com.ollama.server.plist
-sudo rm /Library/LaunchDaemons/com.ollama.server.plist
+sudo launchctl bootout system /Library/LaunchDaemons/com.ollama.serve.plist
+sudo rm /Library/LaunchDaemons/com.ollama.serve.plist
 ```
 
 ### 2.2 Windows（NSSM で常駐化）
