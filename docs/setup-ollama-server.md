@@ -54,34 +54,39 @@ launchctl bootout gui/$(id -u)/com.ollama.ollama 2>/dev/null || true
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key>
-  <string>com.ollama.server</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Applications/Ollama.app/Contents/Resources/ollama</string>
-    <string>serve</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>OLLAMA_HOST</key>
-    <string>0.0.0.0:11434</string>
-    <key>OLLAMA_MODELS</key>
-    <string>/Users/Shared/ollama/models</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>/var/log/ollama.out.log</string>
-  <key>StandardErrorPath</key>
-  <string>/var/log/ollama.err.log</string>
+    <key>Label</key>
+    <string>com.ollama.serve</string>
+    <key>UserName</key>
+    <string>YOUR_USERNAME</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/YOUR_USERNAME</string>
+        <key>OLLAMA_HOST</key>
+        <string>0.0.0.0:11434</string>
+    	<key>OLLAMA_KEEP_ALIVE</key>
+    	<string>24h</string>
+    </dict>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/Ollama.app/Contents/Resources/ollama</string>
+        <string>serve</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/ollama.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/ollama.log</string>
 </dict>
 </plist>
 ```
 
+> - `YOUR_USERNAME` は Ollama を実行する実際のユーザー名に置き換えてください（例: `alice`）。
 > - `launchctl setenv` で設定した環境変数は LaunchDaemon には引き継がれません。`OLLAMA_HOST` は plist 内の `EnvironmentVariables` に直接記載します。
-> - デーモンは root として動作するため、モデルの格納先を `/Users/Shared/ollama/models` など明示します。既存のモデルがある場合は、そのパスへ移すか、改めて `ollama pull` してください。
+> - `UserName` と `HOME` を指定しているため、デーモンはそのユーザーとして動作し、モデルは既定で `~/.ollama/models` に格納されます。別の場所に置く場合は `OLLAMA_MODELS` を `EnvironmentVariables` に追加してください。
 > - ブラウザから直接 CORS アクセスしたい場合のみ `OLLAMA_ORIGINS` を同 `EnvironmentVariables` に追加します（opencode からの利用では不要）。
 
 所有者・権限を設定してロードします。
@@ -94,7 +99,7 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/com.ollama.serve.plist
 
 #### (4) 確認
 ```sh
-sudo launchctl print system/com.ollama.server | head -n 20
+sudo launchctl print system/com.ollama.serve | head -n 20
 ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null
 curl http://<サーバーIP>:11434/api/version
 ```
