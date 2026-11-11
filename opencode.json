@@ -3,6 +3,10 @@
   "providers": {
     "ollama": {
       "name": "Ollama (iride)",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "compatibility": {
+        "maxTokensField": "max_tokens"
+      },
       "settings": {
         "baseURL": "http://iride.local:11434/v1"
       },
@@ -10,14 +14,14 @@
         "iride:technical_auditor": {
           "name": "Iride Technical Auditor (Review)",
           "limit": {
-            "context": 32768,
+            "context": 65536,
             "output": 8192
           }
         },
         "iride:expert_engineer": {
           "name": "Iride Expert Engineer (Coding)",
           "limit": {
-            "context": 32768,
+            "context": 65536,
             "output": 8192
           },
           "body": {
@@ -36,21 +40,29 @@
           "name": "Qwen3.5",
           "limit": {
             "context": 4096,
-            "output": 8192
+            "output": 2048
           }
         },
         "gemma4:12b-nvfp4": {
           "name": "Gemma4",
           "limit": {
             "context": 4096,
-            "output": 8192
+            "output": 2048
           }
         },
         "granite4.1:3b": {
           "name": "Granite 3B (Light Weight)",
           "limit": {
             "context": 4096,
-            "output": 8192
+            "output": 2048
+          }
+        },
+        "granite4.1:3b-title": {
+          "name": "Granite 3B (Title)",
+          "modelID": "granite4.1:3b",
+          "limit": {
+            "context": 4096,
+            "output": 512
           }
         }
       }
@@ -59,7 +71,7 @@
   "model": "opencode/big-pickle",
   "agents": {
     "title": {
-      "model": "ollama/granite4.1:3b"
+      "model": "ollama/granite4.1:3b-title"
     }
   }
 }
