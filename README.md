@@ -1,6 +1,6 @@
 # LLM支援と物理シミュレーションの統合プロジェクト
 
-このリポジトリは、ローカル LLM 推論サーバー（Ollama）を opencode から利用する開発支援と、
+このリポジトリは、ローカル LLM 推論サーバー（Ollama）を opencode 2.x から利用する開発支援と、
 物理シミュレーション（弾道・軌道・多体）を統合したプロジェクトです。
 
 - **シミュレーションコア**: `range_calculator/` 内に配置。弾道・軌道・多体（N 体）の物理計算に
@@ -33,7 +33,7 @@
 | `docs/` | 環境構築・セットアップ手順 | macOS / Linux / Windows / Ollama 構築の手順を格納します。 | §6 を参照 |
 | `tools/` | 開発支援ツール | 文字混入検査、ブートストラップ（`bootstrap.sh`）など、開発サイクルを補助するユーティリティ群です。 | — |
 | `.githooks/` | pre-commit フック | コミット時に文字混入検査を自動実行します。 | — |
-| `opencode.json` | LLM プロバイダ設定 | opencode が利用する LLM プロバイダ（Ollama）の設定ファイルです。 | `docs/setup-ollama-server.md` |
+| `opencode.json` | LLM プロバイダ設定 | opencode 2.x が利用する LLM プロバイダ（Ollama）の設定ファイルです。 | `docs/setup-ollama-server.md` |
 
 ---
 
@@ -46,6 +46,7 @@
 | Python 3.9 以上 | 物理コア・テスト・文字混入検査 | 標準ライブラリのみ。3.15 で検証 |
 | Node.js 20.19+ / 22.12+ | `webapp` の開発サーバ・ビルド | Vite 8 の要件。`webapp` 以外は不要 |
 | Ollama | ローカル LLM 推論サーバー | opencode から OpenAI 互換 API で接続 |
+| opencode 2.x | 開発支援 CLI | 必要に応じて導入。導入手順は `docs/setup-machine.md` / `docs/setup-windows.md` |
 
 環境構築の詳細は以下を参照してください。
 
@@ -55,7 +56,7 @@
 
 ### 2.2 LLM 推論サーバーの構築（Ollama）
 
-開発用エージェントには **opencode**、LLM プロバイダーには**オープンソースの
+開発用エージェントには **opencode 2.x**、LLM プロバイダーには**オープンソースの
 Ollama** を使用します。LLM プロバイダーは **LAN 内のサーバー上に構築**する想定です。
 
 > **サーバーとクライアントを同居させない。**
@@ -72,11 +73,10 @@ Ollama は既定で `127.0.0.1:11434` にしかバインドしないため、**L
 し、`OLLAMA_HOST` は常駐プロセスの環境変数として設定します（ログアウト・再起動後も
 自動起動）。具体的な設定手順は `docs/setup-ollama-server.md` を参照してください。
 
-モデルの取得:
+`opencode.json` が参照するモデル（`iride:*` など）がサーバー上に用意されていることを
+確認します。カスタムモデルの作成例は `docs/setup-ollama-server.md` を参照してください。
 
 ```sh
-ollama pull gemma4:e4b-mlx    # opencode.json の gemma4:e4b-mlx 系のベースモデル
-ollama pull qwen3.5:4b-mlx    # qwen3.5:4b-mlx-64k のベースモデル
 ollama list
 ```
 
@@ -94,11 +94,16 @@ bash tools/bootstrap.sh .
 または、`git config core.hooksPath .githooks` のみでも有効です（クローン済みの場合）。
 以降、コミット時に文字混入検査が自動実行されます。
 
-### 2.4 AI 開発支援（opencode）
+### 2.4 AI 開発支援（opencode 2.x）
 
 `opencode.json` で Ollama の推論サーバーを参照しています。プロバイダ定義と
 モデル一覧は同ファイル、サーバー構築手順は `docs/setup-ollama-server.md` を
 参照してください。
+
+opencode 2.x の設定は、プロバイダを `providers`、接続設定を `settings` にまとめる
+V2 形式です。V1 形式（`provider` / `npm` / `options`）も引き続き読み込まれますが、
+新規設定は V2 形式で記述します。設定ファイルの変更は自動で再読み込みされ、
+手動で反映する場合は TUI の `/reload` または `opencode reload` を使用します。
 
 Ollama サーバーを構築しない場合は、opencode が提供する**無料モデル**を利用
 するか、**契約済みのプロバイダー**（API キー等）を `opencode.json` に定義して
@@ -323,7 +328,7 @@ python3 tools/check_text_hygiene.py
 | `desktop/PLAN.md` | デスクトップアプリの開発計画書 |
 | `docs/setup-machine.md` | 環境構築（macOS / Linux / 共通） |
 | `docs/setup-windows.md` | 環境構築（Windows 11 / Scoop） |
-| `docs/setup-ollama-server.md` | Ollama 推論サーバー構築（opencode 接続用） |
+| `docs/setup-ollama-server.md` | Ollama 推論サーバー構築（opencode 2.x 接続用） |
 | `LICENSE` | ライセンス全文（MIT） |
 | `THIRD_PARTY_NOTICES.md` | 依存コンポーネントのライセンス・配布時の注意 |
 

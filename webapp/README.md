@@ -191,7 +191,8 @@ webapp/
 
 ### 3.1 Windows（Scoop）
 
-未導入なら次で導入します（`docs/setup-windows.md` と同じ構成。`opencode` は任意）。
+未導入なら次で導入します（`docs/setup-windows.md` と同じ構成。`opencode` 2.x は任意で、
+Windows のパッケージマネージャーには非対応のため公式 standalone バイナリまたは npm で導入）。
 
 ```powershell
 scoop install git python gh nodejs

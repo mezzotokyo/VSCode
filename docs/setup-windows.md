@@ -26,11 +26,23 @@ Scoop は既定で `~\scoop` に導入され、`~\scoop\shims` が PATH に追�
 scoop install git python gh nodejs
 ```
 
-opencode（開発支援 CLI）は必要に応じて導入する。
+opencode 2.x（開発支援 CLI）は必要に応じて導入する。Windows のパッケージ
+マネージャー（Scoop 等）は非対応のため、公式の standalone バイナリを使う。
+
+1. [OpenCode の配布ページ](https://opencode.ai/docs/) から
+   `opencode-windows-x64.zip`（ARM64 は `opencode-windows-arm64.zip`）を取得する
+2. zip を展開し、`opencode.exe` を PATH の通ったディレクトリ
+   （例: `%USERPROFILE%\bin`）へ配置する
+3. 新しい PowerShell で `opencode --version` を確認する
+
+Node.js を導入済みなら、npm でも導入できる。
 
 ```powershell
-scoop install opencode
+npm install -g @opencode/cli
 ```
+
+opencode 1.x を Scoop で導入済みの場合は、`scoop uninstall opencode` で削除してから
+V2 を導入する（V1 と V2 は既定で同居しない）。
 
 | ソフト | 用途 | 備考 |
 |--------|------|------|
@@ -38,7 +50,7 @@ scoop install opencode
 | Node.js 20.19 以上 / 22.12 以上 | `webapp` の開発サーバ・ビルド | Scoop `main` バケット（`nodejs`）。Vite 8 の要件。npm 同梱。`webapp` を使わない場合は不要 |
 | Git for Windows | リポジトリ操作・フック実行 | Scoop `main` バケット。フックは POSIX シェルで書かれているが、Git for Windows は `sh` を同梱しているためそのまま動く |
 | GitHub CLI (`gh`) | GitHub 認証 | Scoop `main` バケット。初回のみ `gh auth login --hostname github.com --git-protocol https --web` |
-| opencode | 開発支援 CLI | Scoop `main` バケット。必要に応じて導入 |
+| opencode 2.x | 開発支援 CLI | Windows パッケージマネージャー非対応。公式 standalone バイナリまたは npm で導入 |
 
 Scoop は導入した実行ファイルを `~\scoop\shims` にシムとして置き、このディレクトリを
 PATH に通す。`scoop install` 直後に「コマンドが見つからない」と出る場合は、
@@ -171,6 +183,8 @@ OS 既定値のままにする**（macOS/Linux は `true`・Windows は `false` 
   検証は §2.1 を参照。
 - Scoop 版ツールは `scoop update`（個別なら `scoop update python` / `scoop update nodejs`）
   で更新する。更新後にテストが落ちた場合は `python --version` でバージョン差分を確認する。
+  opencode 2.x は Scoop 管理外のため `scoop update` の対象外。`opencode upgrade` または
+  公式の手順で更新する。
 - **リポジトリの中では `git clone` を実行しない。** リポジトリ内に `git clone`
   すると同じリポジトリが `src/` としてネストされる。ネスト側の文字混入リテラルを
   誤検出してコミットがブロックされるため、ネストを作ってしまった場合はその

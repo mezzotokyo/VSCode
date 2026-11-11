@@ -14,20 +14,25 @@ iCloud Drive 等のクラウド同期フォルダへの依存はしない（Linu
 | Node.js 20.19 以上 / 22.12 以上 | `webapp` の開発サーバ・ビルド | Vite 8 の要件。npm 同梱。`webapp` を使わない場合は不要 |
 | Git | リポジトリ操作・フック実行 | フックは POSIX シェル。Windows は Git Bash の `sh` / `bash` で実行 |
 | GitHub CLI (`gh`) | GitHub 認証・リポジトリ操作 | 認証は `gh auth login` 1 回。HTTPS の credential helper を gh が引き受ける |
-| opencode | 開発支援 CLI | macOS: Homebrew ／ Windows: Scoop ／ Linux: 公式インストーラ。必要に応じて導入 |
+| opencode 2.x | 開発支援 CLI | macOS: Homebrew ／ Windows: standalone バイナリ（Scoop 非対応）／ Linux: 公式インストーラ。必要に応じて導入 |
 
 各 OS の導入手順:
 
 - **macOS**: `xcode-select --install` で `/usr/bin/python3` と `git` が入る。
-  （Homebrew 利用の場合: `brew install python git gh node`、opencode は
-  `brew install anomalyco/tap/opencode`）
+  （Homebrew 利用の場合: `brew install python git gh node`、opencode 2.x は
+  `brew install anomalyco/tap/opencode-v2`）
 - **Windows**: `scoop install git python gh nodejs`（Scoop `main` バケット）。
-  opencode は必要に応じて `scoop install opencode`。詳細は `docs/setup-windows.md` を参照。
+  opencode 2.x は Windows のパッケージマネージャー（Scoop 等）に非対応のため、
+  公式の standalone バイナリ（zip）を展開して PATH に通すか、Node.js がある場合は
+  `npm install -g @opencode/cli` で導入する。詳細は `docs/setup-windows.md` を参照。
 - **Linux (例: Ubuntu)**: `sudo apt install python3 git` ／ `gh` は
   [公式手順](https://cli.github.com/) ／ Node.js は
-  [NodeSource](https://github.com/nodesource/distributions) ／ opencode は
+  [NodeSource](https://github.com/nodesource/distributions) ／ opencode 2.x は
   [公式インストーラ](https://opencode.ai/docs/)
-  （`curl -fsSL https://opencode.ai/install | bash`）等で導入
+  （`curl -fsSL https://opencode.ai/v2/install | bash`）等で導入
+
+opencode 1.x が導入済みの場合は、先にパッケージマネージャー側の V1 を削除する。
+V2 の curl インストーラは V1 のバイナリを置き換える（V1 と V2 は既定で同居しない）。
 
 ### GitHub 認証（初回のみ・マシンごと）
 
